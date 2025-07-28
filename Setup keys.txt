@@ -1,0 +1,5 @@
+$env:OPENAI_API_KEY="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"
+
+python -m uvicorn api_server:app --reload
+
+streamlit run app.py
