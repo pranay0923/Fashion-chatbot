@@ -8,4 +8,5 @@ streamlit
 requests
 langchain
 langchain-openai
+langchain_community
 
