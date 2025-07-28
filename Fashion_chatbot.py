@@ -1,6 +1,8 @@
 import os
 import json
 import sqlite3
+import os
+import openai
 from datetime import datetime
 from getpass import getpass
 
@@ -14,6 +16,27 @@ from langchain.chains import create_history_aware_retriever, create_retrieval_ch
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
+
+# Fashion_chatbot.py
+import os
+import openai
+
+# ✅ Load the API key securely from the environment
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+def generate_response(user_input):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful fashion assistant."},
+                {"role": "user", "content": user_input}
+            ]
+        )
+        reply = response["choices"][0]["message"]["content"]
+        return reply
+    except Exception as e:
+        return f"⚠️ Error: {str(e)}"
 
 
 class FashionDatabase:
@@ -308,6 +331,8 @@ def main():
     print("👗 Welcome to your Personal Fashion Stylist! 👗")
     print("I can help you with outfit recommendations, styling tips, and fashion advice.")
     print("Type 'quit' to exit.\n")
+
+    openai.api_key = os.getenv("OPENAI_API_KEY")
 
     # Securely enter your OpenAI API key
     OPENAI_KEY = getpass("Enter your OpenAI API Key: ")
