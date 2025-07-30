@@ -1,11 +1,35 @@
+# fashion_image_chat.py
+
 import os
-import sqlite3
-import datetime
 import json
 import base64
+from datetime import datetime
+from PIL import Image
+import sqlite3
+import openai
 
-from openai import OpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain.docstore.document import Document
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_community.chat_message_histories import SQLChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
 
+
+# ================================
+# OpenAI and LangChain setup
+# ================================
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
+chatgpt = ChatOpenAI(model_name="gpt-4o", temperature=0.2)
+embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+
+
+# ================================
+# Database Setup
+# ================================
 class FashionDatabase:
     def __init__(self, db_path="fashion_data.db"):
         self.db_path = db_path
@@ -14,73 +38,50 @@ class FashionDatabase:
     def init_database(self):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_behavior (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                action_type TEXT,
-                product_id INTEGER,
-                image_id TEXT,
-                query TEXT,
-                preferences TEXT
-            )
-        """)
-        cursor.execute("""
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS user_images (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                image_path TEXT NOT NULL,
-                image_description TEXT,
-                detected_items TEXT,
-                color_analysis TEXT,
-                style_analysis TEXT,
-                upload_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                id INTEGER PRIMARY KEY,
+                user_id TEXT,
+                image_base64 TEXT,
+                analysis TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+        ''')
         conn.commit()
         conn.close()
 
-    def save_user_image(self, user_id, image_path, description=None, detected_items=None, color_analysis=None, style_analysis=None):
+    def save_image_analysis(self, user_id, image_base64, analysis_dict):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO user_images (user_id, image_path, image_description, detected_items, color_analysis, style_analysis)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            user_id, image_path, description,
-            json.dumps(detected_items) if detected_items else None,
-            json.dumps(color_analysis) if color_analysis else None,
-            json.dumps(style_analysis) if style_analysis else None
-        ))
-        image_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        return image_id
-
-    def track_user_behavior(self, user_id, action_type, product_id=None, image_id=None, query=None, preferences=None):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO user_behavior (user_id, action_type, product_id, image_id, query, preferences, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            user_id, action_type, product_id, image_id, query,
-            json.dumps(preferences) if preferences else None,
-            datetime.datetime.utcnow().isoformat()
-        ))
+        cursor.execute('''
+            INSERT INTO user_images (user_id, image_base64, analysis)
+            VALUES (?, ?, ?)
+        ''', (user_id, image_base64[:100], json.dumps(analysis_dict)))
         conn.commit()
         conn.close()
 
-class EnhancedFashionChatbot:
-    def __init__(self, chat_model, retriever, db, rec_engine, openai_client):
-        self.db = db
+
+# ================================
+# Image Analysis Service
+# ================================
+class ImageAnalysisService:
+    def __init__(self, openai_client):
         self.client = openai_client
 
-    def handle_image_upload(self, user_id: str, image_path: str, message: str):
-        with open(image_path, "rb") as f:
-            img_data = f.read()
-        b64_img = base64.b64encode(img_data).decode()
+    def analyze_base64_image(self, base64_str, user_query=None):
+        prompt = f"""
+        Analyze this fashion image and return details as JSON:
+        1. Clothing Items
+        2. Dominant Colors
+        3. Style Summary
+        4. Suitable Occasion
+        5. Seasonality
+        6. Styling Tips
+        7. Similar Products
+
+        User Query: {user_query or "N/A"}
+        Format: JSON with relevant keys
+        """
 
         try:
             response = self.client.chat.completions.create(
@@ -89,66 +90,43 @@ class EnhancedFashionChatbot:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": f"Analyze this fashion image and provide detailed advice. {message}"},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}}
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": base64_str}}
                         ]
                     }
                 ],
-                max_tokens=900,
+                max_tokens=1000
             )
-            raw_analysis = response.choices[0].message.content.strip()
-        except Exception as e:
-            raw_analysis = f"Image analysis failed: {e}"
+            raw = response.choices[0].message.content
 
-        analysis_result = {
-            "raw_analysis": raw_analysis,
-            "clothing_items": "See raw_analysis",
-            "colors": "See raw_analysis",
-            "style_analysis": "See raw_analysis"
-        }
-        self.db.track_user_behavior(user_id, "image_upload", image_id=os.path.basename(image_path), query=message)
-        return analysis_result
-
-    def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
-        if image_analysis and "raw_analysis" in image_analysis:
             try:
-                raw = image_analysis["raw_analysis"].strip()
-                # --- Robust markdown code fence cleaning (no unterminated strings) ---
-                if raw.startswith("```
-                    clean = raw[7:]
-                elif raw.startswith("```"):
-                    clean = raw[3:]
-                else:
-                    clean = raw
-                if clean.endswith("```
-                    clean = clean[:-3]
-                clean = clean.strip()
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                return {"raw_analysis": raw, "error": "Could not parse JSON"}
+        except Exception as e:
+            return {"error": str(e), "message": "Vision API call failed"}
 
-                try:
-                    parsed = json.loads(clean)
-                    suggestion = (
-                        parsed.get("Clothing Items") or
-                        parsed.get("User's Specific Question", {}).get("Shirt Suggestion") or
-                        parsed.get("Suggested Shirt") or
-                        clean
-                    )
-                except Exception:
-                    parsed = {}
-                    suggestion = clean or "Try a crisp white shirt or a pastel tee!"
 
-                return {
-                    "user_id": user_id,
-                    "answer": suggestion,
-                    "image_analysis": parsed or clean
-                }
-            except Exception as e:
-                return {
-                    "user_id": user_id,
-                    "answer": image_analysis["raw_analysis"],
-                    "image_analysis": image_analysis
-                }
+# ================================
+# Main Handler (Backend Friendly)
+# ================================
+class FashionImageChatHandler:
+    def __init__(self):
+        self.db = FashionDatabase()
+        self.analyzer = ImageAnalysisService(openai_client)
+
+    def image_file_to_base64(self, file):
+        image_bytes = file.read()
+        encoded = base64.b64encode(image_bytes).decode("utf-8")
+        return f"data:image/jpeg;base64,{encoded}"
+
+    def process_image_and_chat(self, user_id, file, user_query=""):
+        base64_image = self.image_file_to_base64(file)
+        analysis = self.analyzer.analyze_base64_image(base64_image, user_query)
+
+        self.db.save_image_analysis(user_id, base64_image, analysis)
+
         return {
             "user_id": user_id,
-            "answer": "🤔 I don't know how to respond to that.",
-            "image_analysis": image_analysis or {}
+            "analysis": analysis,
         }
