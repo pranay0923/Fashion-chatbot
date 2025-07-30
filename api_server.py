@@ -14,6 +14,8 @@ from Fashion_chatbot import (
     Document,
 )
 
+from langchain_chroma import Chroma
+
 import uvicorn
 
 app = FastAPI(title="Fashion Chatbot API")
