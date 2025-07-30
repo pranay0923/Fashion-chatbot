@@ -1,55 +1,108 @@
 # api_server.py
+from fastapi import FastAPI, UploadFile, File, Form, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.exceptions import RequestValidationError, HTTPException
+from fastapi.exception_handlers import http_exception_handler
 
 import os
+import uvicorn
 import tempfile
 import traceback
-from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fashion_image_chat import EnhancedFashionChatbot
 
-app = FastAPI(title="Fashion Chatbot API")
+from fashion_image_chat import EnhancedFashionChatbot, FashionDatabase, FashionRecommendationEngine
+from openai import OpenAI
+
+app = FastAPI(title="Style Pat Fashion Chatbot API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"]
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 chatbot = None
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    traceback.print_exc()
+    print(f"❌ Exception: {str(exc)}")
+    return PlainTextResponse(f"Internal Server Error: {str(exc)}", status_code=500)
+
 @app.on_event("startup")
-def startup():
+def startup_event():
     global chatbot
+    print("🚀 Starting chatbot...")
+
     try:
-        print("🚀 Initializing chatbot...")
-        chatbot = EnhancedFashionChatbot()
-        print("✅ Chatbot is ready.")
-    except Exception as e:
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            raise RuntimeError("OPENAI_API_KEY environment variable not set.")
+
+        openai_native_client = OpenAI(api_key=openai_key)
+
+        fashion_db = FashionDatabase()
+        rec_engine = FashionRecommendationEngine(fashion_db)
+        chatbot = EnhancedFashionChatbot(
+            chat_model=None,
+            retriever=None,
+            db=fashion_db,
+            rec_engine=rec_engine,
+            openai_client=openai_native_client
+        )
+        print("✅ Chatbot initialized successfully.")
+
+    except Exception as ex:
         traceback.print_exc()
-        raise RuntimeError(f"Startup failed: {e}")
+        print(f"❌ Startup failed: {ex}")
+        raise ex
 
 @app.get("/")
 async def root():
-    return {"status": "running"}
+    return {"status": "ok"}
 
 @app.post("/chat")
 async def chat(
     user_id: str = Form(...),
     message: str = Form(""),
-    image: UploadFile = File(None)
+    image: UploadFile = File(None),
 ):
     try:
-        image_analysis = None
-        if image:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                tmp.write(await image.read())
-                tmp.flush()
-                image_analysis = chatbot.handle_image_upload(user_id, tmp.name, message)
+        print(f"📩 Request from user: {user_id}")
+        print(f"📝 Message: {message}")
+        print(f"📷 Image attached: {image is not None}")
 
-        response = chatbot.chat_with_image_context(user_id, message, image_analysis)
+        image_content = None
+        if image:
+            try:
+                image_content = await image.read()
+                print(f"📥 Image read OK, {len(image_content)} bytes")
+            except Exception as e:
+                print(f"❌ Failed to read image: {e}")
+
+        if image_content:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                tmp_file.write(image_content)
+                tmp_file.flush()
+                tmp_path = tmp_file.name
+            analysis_result = chatbot.handle_image_upload(user_id, tmp_path, message)
+            response = chatbot.chat_with_image_context(user_id, message, image_analysis=analysis_result)
+            try:
+                os.remove(tmp_path)
+            except Exception as cleanup_err:
+                print(f"⚠️ Could not delete temp file {tmp_path}: {cleanup_err}")
+        else:
+            response = chatbot.chat_with_image_context(user_id, message)
+
+        print("✅ Sending response")
         return response
 
-    except Exception as e:
+    except Exception as ex:
         traceback.print_exc()
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        print(f"❌ Error in /chat: {ex}")
+        return JSONResponse({"error": str(ex)}, status_code=500)
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
