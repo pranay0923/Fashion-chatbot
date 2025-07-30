@@ -2,49 +2,82 @@ import os
 import sqlite3
 import datetime
 import json
+import base64
 
+from openai import OpenAI
 
-# === Database Wrapper ===
+# === FashionDatabase ===
 class FashionDatabase:
-    def __init__(self):
-        self.db_path = "fashion_data.db"
+    def __init__(self, db_path="fashion_data.db"):
+        self.db_path = db_path
         self.setup()
 
     def setup(self):
-        """Create table and add missing columns safely."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-
-        # Base table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_behavior (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
-                timestamp TEXT NOT NULL
+                timestamp TEXT NOT NULL,
+                action_type TEXT,
+                product_id INTEGER,
+                image_id TEXT,
+                query TEXT,
+                preferences TEXT
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                image_path TEXT NOT NULL,
+                image_description TEXT,
+                detected_items TEXT,
+                color_analysis TEXT,
+                style_analysis TEXT,
+                upload_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        conn.close()
 
-        # Add missing columns safely
-        columns = [
-            ("image_id", "TEXT"),
-            ("message", "TEXT"),
-            ("action_type", "TEXT NOT NULL DEFAULT 'unknown'")
-        ]
-        for col, col_type in columns:
-            try:
-                cursor.execute(f"ALTER TABLE user_behavior ADD COLUMN {col} {col_type}")
-                print(f"✅ Column '{col}' added.")
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" in str(e).lower():
-                    print(f"ℹ️ Column '{col}' already exists.")
-                else:
-                    print(f"❌ Error adding column '{col}': {e}")
+    def save_user_image(self, user_id, image_path, description=None, detected_items=None, color_analysis=None, style_analysis=None):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO user_images (user_id, image_path, image_description, detected_items, color_analysis, style_analysis)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            user_id, image_path, description,
+            json.dumps(detected_items) if detected_items else None,
+            json.dumps(color_analysis) if color_analysis else None,
+            json.dumps(style_analysis) if style_analysis else None
+        ))
+        image_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return image_id
 
+    def track_user_behavior(self, user_id, action_type, product_id=None, image_id=None, query=None, preferences=None):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO user_behavior (user_id, timestamp, action_type, product_id, image_id, query, preferences)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            user_id,
+            datetime.datetime.utcnow().isoformat(),
+            action_type,
+            product_id,
+            image_id,
+            query,
+            json.dumps(preferences) if preferences else None
+        ))
         conn.commit()
         conn.close()
 
     def get_all_products(self):
-        """Return stub product data with 14 fields."""
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -58,17 +91,14 @@ class FashionDatabase:
             )
         ]
 
-
 # === Recommendation Engine (Stub) ===
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
         self.db = db
-    # Add logic as needed
 
-
-# === Chatbot Class ===
+# === EnhancedFashionChatbot ===
 class EnhancedFashionChatbot:
-    def __init__(self, chat_model, retriever, db, rec_engine, openai_client):
+    def __init__(self, chat_model, retriever, db, rec_engine, openai_client: OpenAI):
         self.chat_model = chat_model
         self.retriever = retriever
         self.db = db
@@ -76,90 +106,88 @@ class EnhancedFashionChatbot:
         self.client = openai_client
 
     def handle_image_upload(self, user_id: str, image_path: str, message: str):
-        """Simulate image analysis and log behavior."""
-        print(f"📸 Image saved to: uploads/{os.path.basename(image_path)}")
-        print("🔍 Analyzing image with AI...")
+        print(f"📸 Saving image: {image_path}")
 
-        raw_analysis = json.dumps({
-            "User's Specific Question": {
-                "Shirt Suggestion": "Opt for a loose, oversized white button-up linen shirt to complement the jeans for a relaxed vibe."
-            },
-            "Style Analysis": {
-                "Fashion Style": "Casual streetwear",
-                "Vibe": "Youthful and relaxed"
-            }
-        }, indent=2)
+        with open(image_path, "rb") as f:
+            img_data = f.read()
+        base64_image = base64.b64encode(img_data).decode("utf-8")
+
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": f"Analyze this fashion image. {message}"},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        ]
+                    }
+                ],
+                max_tokens=900
+            )
+            content = response.choices[0].message.content
+            raw_analysis = content.strip()
+        except Exception as e:
+            print(f"❌ AI image analysis failed: {e}")
+            raw_analysis = "Image analysis failed"
 
         analysis_result = {
             "raw_analysis": raw_analysis,
-            "clothing_items": "Analysis available in raw_analysis",
-            "colors": "Analysis available in raw_analysis",
-            "style_analysis": "Analysis available in raw_analysis"
+            "clothing_items": "See raw_analysis",
+            "colors": "See raw_analysis",
+            "style_analysis": "See raw_analysis"
         }
 
-        # Log to database
         try:
-            conn = sqlite3.connect(self.db.db_path)
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO user_behavior (user_id, message, image_id, action_type, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    user_id,
-                    message,
-                    os.path.basename(image_path),
-                    "image_upload",
-                    datetime.datetime.utcnow().isoformat()
-                )
+            self.db.track_user_behavior(
+                user_id,
+                "image_upload",
+                image_id=os.path.basename(image_path),
+                query=message
             )
-            conn.commit()
-            conn.close()
-            print("✅ User behavior logged.")
         except Exception as e:
-            print(f"❌ Error logging to DB: {e}")
+            print(f"❌ DB log error: {e}")
 
         return analysis_result
 
     def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
-        """Parse JSON and provide contextual reply."""
         if image_analysis and "raw_analysis" in image_analysis:
             try:
-                raw_json = image_analysis["raw_analysis"]
-                clean = raw_json.strip()
-
-                if clean.startswith("```json"):
+                raw = image_analysis["raw_analysis"]
+                clean = raw.strip()
+                # === Begin corrected code fence stripper ===
+                if clean.startswith("```
                     clean = clean[7:]
                 elif clean.startswith("```"):
                     clean = clean[3:]
-                if clean.endswith("```"):
+                if clean.endswith("```
                     clean = clean[:-3]
-
                 clean = clean.strip()
-                parsed = json.loads(clean)
-
-                suggestion = (
-                    parsed.get("User's Specific Question", {}).get("Shirt Suggestion") or
-                    parsed.get("Suggested Shirt", {}).get("Details") or
-                    parsed.get("Suggested Shirt") or
-                    "Try pairing it with a crisp white shirt or a pastel tee!"
-                )
-
+                # === End corrected code fence stripper ===
+                try:
+                    parsed = json.loads(clean)
+                    suggestion = (
+                        parsed.get("Clothing Items")
+                        or parsed.get("User's Specific Question", {}).get("Shirt Suggestion")
+                        or parsed.get("Suggested Shirt")
+                        or raw
+                    )
+                except Exception:
+                    parsed = {}
+                    suggestion = clean if clean else "Try a crisp white shirt or a pastel tee!"
                 return {
                     "user_id": user_id,
                     "reply": suggestion,
-                    "image_analysis": parsed
+                    "image_analysis": parsed or clean
                 }
-
             except Exception as e:
-                print(f"❌ JSON parse failed: {e}")
+                print(f"❌ JSON parse error: {e}")
                 return {
                     "user_id": user_id,
-                    "reply": f"⚠️ Could not parse image analysis: {str(e)}",
+                    "reply": image_analysis["raw_analysis"],
                     "image_analysis": image_analysis
                 }
-
         return {
             "user_id": user_id,
             "reply": "🤔 I don't know how to respond to that.",
