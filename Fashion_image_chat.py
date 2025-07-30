@@ -10,43 +10,38 @@ class FashionDatabase:
         self.setup()
 
     def setup(self):
-        """Create table if not exists and safely add missing columns."""
+        """Create table and add missing columns as needed."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-
-        # Create table if it doesn't exist
+        # Ensure table exists
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_behavior (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
                 timestamp TEXT NOT NULL
-                -- additional columns below will be added as needed
+                -- other columns added below if missing
             )
         """)
-
-        # Add missing columns if they don't exist
+        # Add columns safely
         columns = [
             ("image_id", "TEXT"),
             ("message", "TEXT"),
             ("action_type", "TEXT NOT NULL DEFAULT 'unknown'")
         ]
-
-        # Safely add columns, ignore if already present
         for col, col_type in columns:
             try:
                 cursor.execute(f"ALTER TABLE user_behavior ADD COLUMN {col} {col_type}")
-                print(f"✅ Added column '{col}' to user_behavior table.")
+                print(f"✅ Column '{col}' added to user_behavior table.")
             except sqlite3.OperationalError as e:
                 if "duplicate column name" in str(e).lower():
                     print(f"ℹ️ Column '{col}' already exists.")
                 else:
                     print(f"❌ Error adding column '{col}': {e}")
-
         conn.commit()
         conn.close()
 
     def get_all_products(self):
-        """Return list of product tuples with 14 fields each (stub data)."""
+        """Return example products (stub, 14 fields)."""
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -64,7 +59,7 @@ class FashionDatabase:
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
         self.db = db
-    # Add recommendation logic here when ready
+    # Add real recommendation code if needed
 
 # === Enhanced Chatbot ===
 class EnhancedFashionChatbot:
@@ -76,17 +71,11 @@ class EnhancedFashionChatbot:
         self.client = openai_client
 
     def handle_image_upload(self, user_id: str, image_path: str, message: str):
-        """
-        Simulated image upload handling:
-        - Print saved image info,
-        - Simulate AI image analysis (replace with real AI vision service),
-        - Log to DB,
-        - Return analysis dictionary expected by chat_with_image_context.
-        """
+        """Simulate image AI analysis, log event, return analysis dict."""
         print(f"📸 Image saved to: uploads/{os.path.basename(image_path)}")
         print("🔍 Analyzing image with AI...")
 
-        # Simulated raw JSON analysis as a formatted string (no markdown fences)
+        # Simulated analysis JSON (without markdown code fences)
         raw_analysis = json.dumps({
             "User's Specific Question": {
                 "Shirt Suggestion": "Opt for a loose, oversized white button-up linen shirt to complement the jeans for a relaxed vibe."
@@ -104,7 +93,7 @@ class EnhancedFashionChatbot:
             "style_analysis": "Analysis available in raw_analysis"
         }
 
-        # Log the image upload and message to the user_behavior table
+        # Log user behavior
         try:
             conn = sqlite3.connect(self.db.db_path)
             cursor = conn.cursor()
@@ -125,29 +114,27 @@ class EnhancedFashionChatbot:
             conn.close()
             print("✅ User behavior logged successfully.")
         except Exception as e:
-            print(f"❌ DB logging error: {e}")
+            print(f"❌ Error logging to DB: {e}")
 
         return analysis_result
 
     def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
         """
-        Analyze passed image context JSON, extract meaningful reply.
-        Fallback to a generic message when no valid analysis is available.
+        Parse image_analysis JSON and reply accordingly.
+        Falls back to a generic reply if there's no analysis or parse error.
         """
         if image_analysis and "raw_analysis" in image_analysis:
             try:
                 raw_json = image_analysis["raw_analysis"]
-                # Clean whitespace for safe JSON parsing
                 clean_json = raw_json.strip()
 
-                # In case markdown fences are included (check and remove)
-                if clean_json.startswith("```
+                # Remove markdown code fences if present
+                if clean_json.startswith("```json"):
                     clean_json = clean_json[7:]
-                elif clean_json.startswith("```"):
+                elif clean_json.startswith("```
                     clean_json = clean_json[3:]
-                if clean_json.endswith("```
+                if clean_json.endswith("```"):
                     clean_json = clean_json[:-3]
-
                 clean_json = clean_json.strip()
 
                 parsed = json.loads(clean_json)
@@ -158,22 +145,21 @@ class EnhancedFashionChatbot:
                     parsed.get("Suggested Shirt") or
                     "Try pairing it with a crisp white shirt or a pastel tee!"
                 )
-
                 return {
                     "user_id": user_id,
                     "reply": suggestion,
                     "image_analysis": parsed
                 }
             except Exception as e:
-                error_msg = f"Sorry, couldn't parse image analysis. Error: {e}"
-                print(f"❌ {error_msg}")
+                err_msg = f"Sorry, couldn't parse image analysis. Error: {e}"
+                print(f"❌ {err_msg}")
                 return {
                     "user_id": user_id,
-                    "reply": error_msg,
+                    "reply": err_msg,
                     "image_analysis": image_analysis
                 }
 
-        # Fallback general reply when no valid image_analysis provided
+        # Fallback generic reply
         return {
             "user_id": user_id,
             "reply": "🤔 I don't know how to respond to that.",
