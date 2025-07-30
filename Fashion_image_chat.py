@@ -12,7 +12,7 @@ class FashionDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # ✅ Add 'image_id' column to user_behavior table if missing
+        # ✅ Add 'image_id' column if missing
         try:
             cursor.execute("ALTER TABLE user_behavior ADD COLUMN image_id TEXT")
             print("✅ Column 'image_id' added to user_behavior table.")
@@ -20,13 +20,23 @@ class FashionDatabase:
             if "duplicate column name" in str(e):
                 print("ℹ️ Column 'image_id' already exists.")
             else:
-                print("❌ Error altering user_behavior table:", e)
+                print("❌ Error altering table (image_id):", e)
+
+        # ✅ Add 'message' column if missing
+        try:
+            cursor.execute("ALTER TABLE user_behavior ADD COLUMN message TEXT")
+            print("✅ Column 'message' added to user_behavior table.")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e):
+                print("ℹ️ Column 'message' already exists.")
+            else:
+                print("❌ Error altering table (message):", e)
 
         conn.commit()
         conn.close()
 
     def get_all_products(self):
-        # ✅ Return 14 fields per product (required by api_server.py)
+        # ✅ Return 14 fields per product
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -41,13 +51,13 @@ class FashionDatabase:
         ]
 
 
-# === Recommendation Engine (stub for now) ===
+# === Recommendation Engine (Stub) ===
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
         self.db = db
 
 
-# === Main Chatbot Class ===
+# === Enhanced Chatbot ===
 class EnhancedFashionChatbot:
     def __init__(self, chat_model, retriever, db, rec_engine, openai_client):
         self.chat_model = chat_model
@@ -57,7 +67,7 @@ class EnhancedFashionChatbot:
         self.client = openai_client
 
     def handle_image_upload(self, user_id: str, image_path: str, message: str):
-        # ✅ Simulate AI image analysis
+        # Simulate analysis
         print(f"📸 Image saved to: uploads/{os.path.basename(image_path)}")
         print("🔍 Analyzing image with AI...")
 
@@ -71,6 +81,7 @@ class EnhancedFashionChatbot:
             }
         }
 
+        # Log to DB
         try:
             conn = sqlite3.connect(self.db.db_path)
             cursor = conn.cursor()
@@ -87,7 +98,6 @@ class EnhancedFashionChatbot:
                     datetime.datetime.now().isoformat()
                 )
             )
-
             conn.commit()
             conn.close()
         except Exception as e:
@@ -98,7 +108,6 @@ class EnhancedFashionChatbot:
         return analysis_result
 
     def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
-        # ✅ Return a mock response
         return {
             "user_id": user_id,
             "reply": "You can pair that with a loose-fit white shirt or a pastel oversized tee!",
