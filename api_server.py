@@ -5,22 +5,23 @@ from typing import Optional, Dict, Any
 import base64
 import os
 
-# If you're using OpenAI
+# NEW: OpenAI client for SDK >= 1.0.0
 import openai
-openai.api_key = os.getenv("OPENAI_API_KEY")  # Set this in Render environment
+
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI()
 
-# Allow CORS from any origin (adjust if needed for security)
+# Allow all origins for now (you can restrict to your frontend domain)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Change this to your Streamlit domain for security
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---- Request/Response Schemas ----
+# --- Request/Response Schemas ---
 
 class ChatRequest(BaseModel):
     user_id: str
@@ -31,7 +32,11 @@ class ChatResponse(BaseModel):
     answer: str
     image_analysis: Optional[Dict[str, Any]] = None
 
-# ---- Route ----
+# --- Routes ---
+
+@app.get("/")
+def root():
+    return {"message": "Fashion Chatbot API is running. Use POST /chat to interact."}
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_fashion_bot(request: ChatRequest):
@@ -39,10 +44,10 @@ async def chat_with_fashion_bot(request: ChatRequest):
     message = request.message
     image_data = request.image_base64
 
-    # Step 1: Handle message
+    # Generate assistant reply using OpenAI
     answer = generate_text_response(message)
 
-    # Step 2: Optional image analysis
+    # Optionally analyze image
     image_analysis = None
     if image_data:
         image_analysis = analyze_image_base64(image_data)
@@ -52,14 +57,14 @@ async def chat_with_fashion_bot(request: ChatRequest):
         image_analysis=image_analysis
     )
 
-# ---- Helper Functions ----
+# --- Helper Functions ---
 
 def generate_text_response(prompt: str) -> str:
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",temperature=0.1,
+        response = client.chat.completions.create(
+            model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a fashion assistant."},
+                {"role": "system", "content": "You are a helpful and trendy fashion assistant."},
                 {"role": "user", "content": prompt}
             ]
         )
@@ -69,11 +74,11 @@ def generate_text_response(prompt: str) -> str:
 
 def analyze_image_base64(image_data: str) -> dict:
     try:
-        # Decode base64 string
+        # Decode base64 image
         header, base64_str = image_data.split(",", 1)
         image_bytes = base64.b64decode(base64_str)
 
-        # For demo: return fake analysis (replace with real logic later)
+        # Simulated image analysis (replace with your own vision model if needed)
         return {
             "dominant_color": "beige",
             "detected_style": "casual",
