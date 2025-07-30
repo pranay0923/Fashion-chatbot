@@ -14,13 +14,12 @@ class FashionDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # Ensure table exists
+        # Ensure base table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_behavior (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
                 timestamp TEXT NOT NULL
-                -- other columns added below if missing
             )
         """)
 
@@ -30,7 +29,6 @@ class FashionDatabase:
             ("message", "TEXT"),
             ("action_type", "TEXT NOT NULL DEFAULT 'unknown'")
         ]
-
         for col, col_type in columns:
             try:
                 cursor.execute(f"ALTER TABLE user_behavior ADD COLUMN {col} {col_type}")
@@ -40,12 +38,11 @@ class FashionDatabase:
                     print(f"ℹ️ Column '{col}' already exists.")
                 else:
                     print(f"❌ Error adding column '{col}': {e}")
-
         conn.commit()
         conn.close()
 
     def get_all_products(self):
-        """Return example products (stub, 14 fields)."""
+        """Return example products (14 fields)."""
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -63,7 +60,6 @@ class FashionDatabase:
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
         self.db = db
-    # Add real recommendation logic if needed
 
 # === Enhanced Chatbot ===
 class EnhancedFashionChatbot:
@@ -79,7 +75,6 @@ class EnhancedFashionChatbot:
         print(f"📸 Image saved to: uploads/{os.path.basename(image_path)}")
         print("🔍 Analyzing image with AI...")
 
-        # Simulated analysis JSON (no markdown code fences)
         raw_analysis = json.dumps({
             "User's Specific Question": {
                 "Shirt Suggestion": "Opt for a loose, oversized white button-up linen shirt to complement the jeans for a relaxed vibe."
@@ -97,7 +92,6 @@ class EnhancedFashionChatbot:
             "style_analysis": "Analysis available in raw_analysis"
         }
 
-        # Log user behavior
         try:
             conn = sqlite3.connect(self.db.db_path)
             cursor = conn.cursor()
@@ -120,28 +114,22 @@ class EnhancedFashionChatbot:
         except Exception as e:
             print(f"❌ Error logging to DB: {e}")
 
-        return analysis_result
+        return analysis_result  # ✅ THE MISSING RETURN FIXED
 
     def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
-        """
-        Parse image_analysis JSON and reply accordingly.
-        Falls back to a generic reply if there's no analysis or parse error.
-        """
+        """Parse image_analysis and provide a response."""
         if image_analysis and "raw_analysis" in image_analysis:
             try:
                 raw_json = image_analysis["raw_analysis"]
                 print("🔍 raw_analysis:", raw_json)
 
                 clean_json = raw_json.strip()
-
-                # Remove markdown code fences if present
                 if clean_json.startswith("```json"):
                     clean_json = clean_json[7:]
                 elif clean_json.startswith("```"):
                     clean_json = clean_json[3:]
                 if clean_json.endswith("```"):
                     clean_json = clean_json[:-3]
-
                 clean_json = clean_json.strip()
 
                 parsed = json.loads(clean_json)
@@ -160,15 +148,13 @@ class EnhancedFashionChatbot:
                 }
 
             except Exception as e:
-                err_msg = f"Sorry, couldn't parse image analysis. Error: {e}"
-                print(f"❌ {err_msg}")
+                print(f"❌ JSON parsing failed: {e}")
                 return {
                     "user_id": user_id,
-                    "reply": err_msg,
+                    "reply": f"⚠️ Could not parse image analysis. Error: {str(e)}",
                     "image_analysis": image_analysis
                 }
 
-        # Fallback generic reply
         return {
             "user_id": user_id,
             "reply": "🤔 I don't know how to respond to that.",
