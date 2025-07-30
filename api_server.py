@@ -11,57 +11,125 @@ import uvicorn
 import tempfile
 import traceback
 
-# Import the backend logic factory function only (all other setup is handled within it)
-from fashion_image_chat import get_fashion_chatbot
+from Fashion_image_chat import (
+    EnhancedFashionChatbot,
+    FashionDatabase,
+    FashionRecommendationEngine
+)
 
-app = FastAPI(title="Fashion AI Backend")
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.docstore.document import Document
+import openai
+
+
+# === App Initialization ===
+app = FastAPI(title="Style Pat Fashion Chatbot API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For production: set only your frontend domain!
+    allow_origins=["*"],  # Restrict this in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-chatbot = None  # Will be initialized on startup
+chatbot = None  # Global chatbot instance
 
 
-# --- Exception handlers for robust logging ---
+# === Global Exception Handlers ===
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     traceback.print_exc()
+    print(f"❌ Global Exception Caught: {str(exc)}")
     return PlainTextResponse(f"Internal Server Error: {str(exc)}", status_code=500)
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"❌ Validation Error: {exc}")
     return await http_exception_handler(request, exc)
 
 @app.exception_handler(HTTPException)
-async def custom_http_exception_handler(request: Request, exc: HTTPException):
+async def http_exception_handler_custom(request: Request, exc: HTTPException):
+    print(f"❌ HTTP Exception: {exc}")
     return await http_exception_handler(request, exc)
 
-# --- Startup event: create and hold a single chatbot instance ---
+
+# === Startup Event ===
 @app.on_event("startup")
 def startup_event():
     global chatbot
-    print("🚀 Initializing backend chatbot...")
+    print("🚀 Starting chatbot...")
+
     try:
+        # Load and check API Key
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
-            raise RuntimeError("OPENAI_API_KEY environment variable is missing.")
-        chatbot = get_fashion_chatbot(openai_key)
-        print("✅ Chatbot is ready!")
+            raise RuntimeError("❌ OPENAI_API_KEY environment variable is not set.")
+
+        os.environ["OPENAI_API_KEY"] = openai_key
+        openai_native_client = openai.OpenAI(api_key=openai_key)
+
+        # Initialize chatbot components
+        chatgpt = ChatOpenAI(model_name="gpt-4o", temperature=0.1)
+        embed_model = OpenAIEmbeddings(model="text-embedding-3-small")
+        fashion_db = FashionDatabase()
+        rec_engine = FashionRecommendationEngine(fashion_db)
+
+        # Vector store setup
+        products = fashion_db.get_all_products()
+        documents = []
+        for product in products:
+            doc_text = f"""
+            Name: {product[1]}
+            Category: {product[2]} - {product[3]}
+            Brand: {product[4]}
+            Price: ${product[5]}
+            Color: {product[6]}
+            Size: {product[7]}
+            Description: {product[8]}
+            Style: {product[9]}
+            Season: {product[10]}
+            Gender: {product[11]}
+            Occasion: {product[12]}
+            Material: {product[13]}
+            """
+            doc = Document(
+                page_content=doc_text.strip(),
+                metadata={
+                    'product_id': product[0],
+                    'name': product[1],
+                    'category': product[2],
+                    'brand': product[4],
+                    'price': product[5],
+                    'color': product[6]
+                }
+            )
+            documents.append(doc)
+
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        chunks = splitter.split_documents(documents)
+        vectorstore = FAISS.from_documents(chunks, embedding=embed_model)
+        retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 8})
+
+        # Instantiate enhanced chatbot
+        chatbot = EnhancedFashionChatbot(chatgpt, retriever, fashion_db, rec_engine, openai_native_client)
+        print("✅ Chatbot initialized successfully")
+
     except Exception as e:
         traceback.print_exc()
         print(f"❌ Startup failed: {e}")
         raise e
 
+
+# === Health Check ===
 @app.get("/")
 async def root():
     return {"status": "ok"}
 
-# --- Main backend chat endpoint ---
+
+# === Chat Endpoint ===
 @app.post("/chat")
 async def chat(
     user_id: str = Form(...),
@@ -69,63 +137,56 @@ async def chat(
     image: UploadFile = File(None),
 ):
     try:
-        print(f"📩 Request: user_id={user_id} message='{message}' image_uploaded={image is not None}")
-        response = None
-        image_temp_path = None
+        print(f"📩 Incoming request from user: {user_id}")
+        print(f"📝 Message: {message}")
+        print(f"📷 Image received: {image is not None}")
 
-        # If there is an image, save it (temporarily) and analyze it
+        image_content = None
         if image:
             try:
                 image_content = await image.read()
-                if image_content:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
-                        tmp_file.write(image_content)
-                        tmp_file.flush()
-                        image_temp_path = tmp_file.name
-                        print(f"🖼️ Temp image saved: {image_temp_path}")
+                print(f"📥 Image read successful — size: {len(image_content)} bytes")
             except Exception as read_err:
-                print(f"❌ Error reading image file: {read_err}")
-                return JSONResponse({"answer": f"Could not read image: {str(read_err)}"}, status_code=400)
+                print("❌ Failed to read image:", read_err)
 
-        # Process query accordingly
-        if image_temp_path:
-            # Handle the image and attach its analysis result in the conversation chain
-            analysis_result = chatbot.handle_image_upload(user_id, image_temp_path, message)
-            try:
-                os.remove(image_temp_path)
-            except Exception as cleanup_err:
-                print(f"⚠️ Warning: Could not clean up temp image: {cleanup_err}")
+        # If image was uploaded, analyze and use it
+        if image_content:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                tmp_file.write(image_content)
+                tmp_file.flush()
+                tmp_path = tmp_file.name
+                print(f"🖼️ Image saved to: {tmp_path}")
+
+            analysis_result = chatbot.handle_image_upload(user_id, tmp_path, message)
+
+            if analysis_result is None:
+                print("❌ handle_image_upload() returned None.")
+                return JSONResponse({"error": "Image analysis failed (no response)."}, status_code=500)
+
+            if not isinstance(analysis_result, dict):
+                print("❌ Unexpected return from handle_image_upload():", analysis_result)
+                return JSONResponse({"error": "Unexpected image analysis result."}, status_code=500)
 
             if not analysis_result.get("success", False):
                 print(f"⚠️ Image analysis failed: {analysis_result.get('error')}")
-                return JSONResponse({"answer": f"Image analysis failed: {analysis_result.get('error', 'unknown error')}"}, status_code=500)
+                return JSONResponse({"error": "Image analysis failed."}, status_code=500)
 
-            # Now do the main chat (with image context)
-            result = chatbot.chat_with_image_context(
+            response = chatbot.chat_with_image_context(
                 user_id, message, image_analysis=analysis_result.get("analysis", {})
             )
         else:
-            # Text query only
-            result = chatbot.chat_with_image_context(user_id, message)
+            print("💬 No image attached — text-only message.")
+            response = chatbot.chat_with_image_context(user_id, message)
 
-        # Format errors for frontend handling (so the UI displays them well)
-        if "error" in result:
-            return JSONResponse({"answer": f"Error: {result.get('error')}"}, status_code=500)
-
-        # Only send back "answer" (main assistant reply), rest is optional context for frontend
-        response_json = {
-            "answer": result.get("answer", "🤔 I don't know how to respond to that."),
-            "recommendations": result.get("recommendations", []),
-            "image_analysis": result.get("image_analysis", {}),
-            "user_preferences": result.get("user_preferences", {}),
-            # You can add more fields if your frontend wants them
-        }
-        return JSONResponse(response_json)
+        print("✅ Chat response ready.")
+        return response
 
     except Exception as e:
         traceback.print_exc()
-        return JSONResponse({"answer": f"Server error: {str(e)}"}, status_code=500)
+        print(f"❌ Error in /chat endpoint: {str(e)}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
-# --- Run locally for development ---
+
+# === Local Run (for dev only) ===
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
