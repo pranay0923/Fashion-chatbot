@@ -13,6 +13,7 @@ class FashionDatabase:
         """Create table and add missing columns as needed."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+
         # Ensure table exists
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_behavior (
@@ -22,12 +23,14 @@ class FashionDatabase:
                 -- other columns added below if missing
             )
         """)
-        # Add columns safely
+
+        # Add required columns if missing
         columns = [
             ("image_id", "TEXT"),
             ("message", "TEXT"),
             ("action_type", "TEXT NOT NULL DEFAULT 'unknown'")
         ]
+
         for col, col_type in columns:
             try:
                 cursor.execute(f"ALTER TABLE user_behavior ADD COLUMN {col} {col_type}")
@@ -37,6 +40,7 @@ class FashionDatabase:
                     print(f"ℹ️ Column '{col}' already exists.")
                 else:
                     print(f"❌ Error adding column '{col}': {e}")
+
         conn.commit()
         conn.close()
 
@@ -59,7 +63,7 @@ class FashionDatabase:
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
         self.db = db
-    # Add real recommendation code if needed
+    # Add real recommendation logic if needed
 
 # === Enhanced Chatbot ===
 class EnhancedFashionChatbot:
@@ -75,7 +79,7 @@ class EnhancedFashionChatbot:
         print(f"📸 Image saved to: uploads/{os.path.basename(image_path)}")
         print("🔍 Analyzing image with AI...")
 
-        # Simulated analysis JSON (without markdown code fences)
+        # Simulated analysis JSON (no markdown code fences)
         raw_analysis = json.dumps({
             "User's Specific Question": {
                 "Shirt Suggestion": "Opt for a loose, oversized white button-up linen shirt to complement the jeans for a relaxed vibe."
@@ -126,15 +130,18 @@ class EnhancedFashionChatbot:
         if image_analysis and "raw_analysis" in image_analysis:
             try:
                 raw_json = image_analysis["raw_analysis"]
+                print("🔍 raw_analysis:", raw_json)
+
                 clean_json = raw_json.strip()
 
                 # Remove markdown code fences if present
                 if clean_json.startswith("```json"):
                     clean_json = clean_json[7:]
-                elif clean_json.startswith("```
+                elif clean_json.startswith("```"):
                     clean_json = clean_json[3:]
                 if clean_json.endswith("```"):
                     clean_json = clean_json[:-3]
+
                 clean_json = clean_json.strip()
 
                 parsed = json.loads(clean_json)
@@ -145,11 +152,13 @@ class EnhancedFashionChatbot:
                     parsed.get("Suggested Shirt") or
                     "Try pairing it with a crisp white shirt or a pastel tee!"
                 )
+
                 return {
                     "user_id": user_id,
                     "reply": suggestion,
                     "image_analysis": parsed
                 }
+
             except Exception as e:
                 err_msg = f"Sorry, couldn't parse image analysis. Error: {e}"
                 print(f"❌ {err_msg}")
