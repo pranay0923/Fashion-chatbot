@@ -84,7 +84,7 @@ class EnhancedFashionChatbot:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o", temperature=0.1,
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "user",
@@ -113,7 +113,7 @@ class EnhancedFashionChatbot:
         if image_analysis and "raw_analysis" in image_analysis:
             try:
                 raw = image_analysis["raw_analysis"].strip()
-                # Properly quoted strings, no unterminated literals:
+                # --- Robust markdown code fence cleaning (no unterminated strings) ---
                 if raw.startswith("```
                     clean = raw[7:]
                 elif raw.startswith("```"):
