@@ -26,7 +26,10 @@ from langchain_core.output_parsers import StrOutputParser
 
 # ===== PART 2: OPENAI API SETUP =====
 def setup_openai_api():
-    OPENAI_KEY = getpass("Enter your API Token here: ")
+    OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+    if not OPENAI_KEY:
+        raise ValueError("❌ OPENAI_API_KEY environment variable not set.")
+    
     os.environ['OPENAI_API_KEY'] = OPENAI_KEY
 
     # Initialize OpenAI models
