@@ -1,22 +1,24 @@
 import os
-import uvicorn
+import shutil
 import tempfile
-import traceback
-import requests
-from fastapi import FastAPI, File, Form, UploadFile, Request
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
-from fastapi.exception_handlers import http_exception_handler
-from fastapi.exceptions import RequestValidationError, HTTPException
+from fastapi.responses import JSONResponse
+import uvicorn
 
-from fashion_image_chat import EnhancedFashionChatbot, FashionDatabase, FashionRecommendationEngine
 from openai import OpenAI
 
-app = FastAPI(title="Style Pat Fashion AI Backend")
+from fashion_image import (
+    EnhancedFashionChatbot,
+    FashionDatabase,
+    FashionRecommendationEngine,
+)
+
+app = FastAPI(title="Fashion AI Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # adjust in prod
+    allow_origins=["*"],  # Adjust this for production!
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -24,86 +26,70 @@ app.add_middleware(
 
 chatbot = None
 
-@app.exception_handler(Exception)
-async def universal_exception_handler(request: Request, exc: Exception):
-    traceback.print_exc()
-    return PlainTextResponse(f"Internal Server Error: {exc}", status_code=500)
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    print(f"Validation error: {exc}")
-    return await http_exception_handler(request, exc)
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler_custom(request: Request, exc: HTTPException):
-    print(f"HTTP exception: {exc}")
-    return await http_exception_handler(request, exc)
-
 @app.on_event("startup")
-def startup_event():
+def startup():
     global chatbot
-    print("Starting chatbot engine...")
 
-    try:
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY environment variable is required")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
 
-        openai_client = OpenAI(api_key=openai_api_key)
+    openai_client = OpenAI(api_key=api_key)
 
-        fashion_db = FashionDatabase()
-        rec_engine = FashionRecommendationEngine(fashion_db)
+    # Init LangChain chat model and embed model
+    chat_model = ChatOpenAI(model_name="gpt-4o", temperature=0.1)
+    embed_model = OpenAIEmbeddings(model="text-embedding-3")
 
-        # You can set chat_model and retriever to None or real instances if ready
-        chatbot = EnhancedFashionChatbot(
-            chat_model=None,
-            retriever=None,
-            db=fashion_db,
-            rec_engine=rec_engine,
-            openai_client=openai_client,
-        )
-        print("Chatbot initialized successfully")
+    # Load or init DB
+    db = FashionDatabase()
 
-    except Exception as e:
-        print(f"Error initializing chatbot: {e}")
-        raise
+    # Prepare vector DB for products (load or build embedding)
+    products = db.get_all_products()
+    from langchain.vectorstores import FAISS
+
+    docs = []
+    for p in products:
+        txt = f"Product: {p[1]}, Category: {p}, Brand: {p}, Color: {p}, Price: {p}, Description: {p}"
+        docs.append(Document(page_content=txt, metadata={"product_id": p}))
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    chunks = splitter.split_documents(docs)
+
+    vectordb = FAISS.from_documents(chunks, embed_model)
+    retriever = vectordb.as_retriever(search_kwargs={"k": 5})
+
+    rec_engine = FashionRecommendationEngine(db, retriever)
+
+    chatbot = EnhancedFashionChatbot(chat_model, retriever, db, rec_engine, openai_client)
 
 @app.get("/")
-def root():
+def get_root():
     return {"status": "ok"}
 
 @app.post("/chat")
 async def chat(
     user_id: str = Form(...),
-    message: str = Form(""),
-    image: UploadFile = File(None)
+    message: str = Form(default=""),
+    image: UploadFile = File(default=None),
 ):
     try:
-        print(f"Request from user: {user_id}, message: {message}")
-        if image:
-            image_bytes = await image.read()
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-            temp_file.write(image_bytes)
-            temp_file.flush()
-            temp_file.close()
+        if image is not None:
+            # Save image temporary
+            suffix = os.path.splitext(image.filename)[-1]
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                shutil.copyfileobj(image.file, tmp)
+                tmp_path = tmp.name
 
-            print(f"Saved uploaded image to {temp_file.name}")
-
-            analysis = chatbot.handle_image_upload(user_id, temp_file.name, message)
-            response = chatbot.chat_with_image_context(user_id, message, image_analysis=analysis)
-
-            try:
-                os.remove(temp_file.name)
-            except Exception as e:
-                print(f"Warning: failed to delete temp image file {temp_file.name}: {e}")
+            analysis = chatbot.handle_uploaded_image(user_id, open(tmp_path, "rb"), message)
+            response = chatbot.chat_with_context(user_id, message, image_analysis=analysis)
+            os.unlink(tmp_path)
         else:
-            response = chatbot.chat_with_image_context(user_id, message)
+            response = chatbot.chat_with_context(user_id, message)
 
         return response
-
     except Exception as e:
-        traceback.print_exc()
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 if __name__ == "__main__":
-    uvicorn.run("api_server:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("api_server:app", host="0.0.0.0", port=port, reload=True)
