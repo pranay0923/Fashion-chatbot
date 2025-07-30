@@ -10,31 +10,41 @@ class FashionDatabase:
         self.setup()
 
     def setup(self):
+        """Create/modify DB and add missing columns if needed."""
+        # Make sure table exists first (create if needed)
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # Add missing columns if needed
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_behavior (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                timestamp TEXT NOT NULL
+                -- columns image_id, message, action_type will be added if missing
+            )
+        """)
+
+        # Add missing columns safely
         columns = [
             ("image_id", "TEXT"),
             ("message", "TEXT"),
             ("action_type", "TEXT NOT NULL DEFAULT 'unknown'")
         ]
-
         for col, col_type in columns:
             try:
                 cursor.execute(f"ALTER TABLE user_behavior ADD COLUMN {col} {col_type}")
                 print(f"✅ Column '{col}' added to user_behavior table.")
             except sqlite3.OperationalError as e:
-                if "duplicate column name" in str(e):
+                if "duplicate column name" in str(e).lower():
                     print(f"ℹ️ Column '{col}' already exists.")
                 else:
-                    print(f"❌ Error altering table ({col}):", e)
+                    print(f"❌ Error adding column '{col}':", e)
 
         conn.commit()
         conn.close()
 
     def get_all_products(self):
-        # Return 14 fields per product
+        # Return 14 fields per product - stub data for demo
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -48,10 +58,11 @@ class FashionDatabase:
             )
         ]
 
-# === Recommendation Engine (Stub) ===
+# === Recommendation Engine (Stub, can be expanded) ===
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
         self.db = db
+    # Add your recommendation logic here...
 
 # === Enhanced Chatbot ===
 class EnhancedFashionChatbot:
@@ -63,31 +74,35 @@ class EnhancedFashionChatbot:
         self.client = openai_client
 
     def handle_image_upload(self, user_id: str, image_path: str, message: str):
+        """
+        Process uploaded image:
+         - Simulate AI analysis of image content,
+         - Log user behavior in DB,
+         - Return structured analysis for further chat context.
+        """
+        # Log upload event
         print(f"📸 Image saved to: uploads/{os.path.basename(image_path)}")
         print("🔍 Analyzing image with AI...")
 
-        # Simulated image analysis result
+        # Simulated image analysis (replace with real AI call if available)
+        raw_analysis = '''{
+          "User's Specific Question": {
+            "Shirt Suggestion": "Opt for a loose, oversized white button-up linen shirt to complement the jeans for a relaxed vibe."
+          },
+          "Style Analysis": {
+            "Fashion Style": "Casual streetwear",
+            "Vibe": "Youthful and relaxed"
+          }
+        }'''
+
         analysis_result = {
-            "success": True,
-            "analysis": {
-                "raw_analysis": '''```json
-{
-  "User's Specific Question": {
-    "Shirt Suggestion": "Opt for a loose, oversized white button-up linen shirt to complement the jeans for a relaxed vibe."
-  },
-  "Style Analysis": {
-    "Fashion Style": "Casual streetwear",
-    "Vibe": "Youthful and relaxed"
-  }
-}
-```''',
-                "clothing_items": "Analysis available in raw_analysis",
-                "colors": "Analysis available in raw_analysis",
-                "style_analysis": "Analysis available in raw_analysis"
-            }
+            "raw_analysis": raw_analysis,
+            "clothing_items": "Analysis available in raw_analysis",
+            "colors": "Analysis available in raw_analysis",
+            "style_analysis": "Analysis available in raw_analysis"
         }
 
-        # Log to DB
+        # Persist log to DB
         try:
             conn = sqlite3.connect(self.db.db_path)
             cursor = conn.cursor()
@@ -106,27 +121,29 @@ class EnhancedFashionChatbot:
             )
             conn.commit()
             conn.close()
+            print("✅ User behavior logged.")
         except Exception as e:
             print(f"❌ Error processing image: {e}")
-            analysis_result["success"] = False
-            analysis_result["error"] = str(e)
 
         return analysis_result
 
     def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
+        """
+        Generate response based on image analysis and/or text input.
+        - Parses raw_analysis JSON string,
+        - Extracts relevant reply suggestions,
+        - Falls back to default if no usable data.
+        """
         if image_analysis and "raw_analysis" in image_analysis:
             try:
                 raw_json = image_analysis["raw_analysis"]
-                print("🔎 Raw analysis received:", raw_json)
-
-                # Remove formatting wrappers
-                if raw_json.startswith("```json"):
+                # Clean JSON string of markdown/code block if present
+                if raw_json.startswith("```
                     raw_json = raw_json[7:]
                 raw_json = raw_json.strip("`\n ")
 
                 parsed = json.loads(raw_json)
 
-                # Try various fields
                 suggestion = (
                     parsed.get("User's Specific Question", {}).get("Shirt Suggestion") or
                     parsed.get("Suggested Shirt", {}).get("Details") or
@@ -148,6 +165,7 @@ class EnhancedFashionChatbot:
                     "image_analysis": image_analysis
                 }
 
+        # Fallback answer when no valid image analysis is present
         return {
             "user_id": user_id,
             "reply": "🤔 I don't know how to respond to that.",
