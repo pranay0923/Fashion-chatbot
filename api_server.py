@@ -1,72 +1,86 @@
-import os
-import tempfile
-import shutil
+# api_server.py
+
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import uvicorn
-import traceback
+from pydantic import BaseModel
+import shutil
+import os
+import uuid
+import base64
+import tempfile
 
-from Fashion_image_chat import (
-    EnhancedFashionChatbot,
+from fashion_image_chat import (
     FashionDatabase,
     FashionRecommendationEngine,
-    setup_openai_api,  # The function you wrote for model setup
+    create_fashion_vector_store,
+    EnhancedFashionChatbot,
+    setup_openai_api
 )
 
-app = FastAPI(title="Fashion AI Backend")
+# --- Step 1: FastAPI App Setup ---
+app = FastAPI()
 
+# Allow frontend from any origin (adjust for production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust in production!
+    allow_origins=["*"],  # Change this to your frontend domain in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-chatbot = None
+# --- Step 2: Initialize Components ---
+chatgpt, embed_model, openai_client = setup_openai_api()
+fashion_db = FashionDatabase()
+rec_engine = FashionRecommendationEngine(fashion_db)
+vectorstore = create_fashion_vector_store(fashion_db, embed_model)
+fashion_retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5})
+fashion_bot = EnhancedFashionChatbot(chatgpt, fashion_retriever, fashion_db, rec_engine, openai_client)
 
-@app.on_event("startup")
-def startup_event():
-    global chatbot
-    # Load OpenAI key from environment for security
-    chatgpt, openai_embed_model, openai_native_client = setup_openai_api()
-    db = FashionDatabase()
-    rec_engine = FashionRecommendationEngine(db)
-    # Rec engine can be enhanced to use retriever/vector search if desired
-    chatbot = EnhancedFashionChatbot(
-        chatgpt, None, db, rec_engine, openai_native_client
+# --- Step 3: Request & Response Schemas ---
+class ChatRequest(BaseModel):
+    user_id: str
+    message: str
+    image_base64: str = None
+
+class ChatResponse(BaseModel):
+    answer: str
+    recommendations: list
+    context_products: list
+    user_preferences: dict
+    image_analysis: dict | None
+
+# --- Step 4: Health Check ---
+@app.get("/")
+def root():
+    return {"message": "Fashion Chatbot API is running. Use the /chat endpoint to interact."}
+
+# --- Step 5: Chat Endpoint ---
+@app.post("/chat", response_model=ChatResponse)
+async def chat_with_fashion_bot(request: ChatRequest):
+    image_analysis = None
+
+    # Handle base64 image if present
+    if request.image_base64:
+        # Save temporary image
+        file_bytes = base64.b64decode(request.image_base64.split(",")[-1])
+        temp_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.jpg")
+        with open(temp_path, "wb") as f:
+            f.write(file_bytes)
+
+        result = fashion_bot.handle_image_upload(
+            user_id=request.user_id,
+            image_file_path=temp_path,
+            query=request.message
+        )
+        if result.get("success"):
+            image_analysis = result.get("analysis")
+
+    # Get chatbot response
+    response = fashion_bot.chat_with_image_context(
+        user_id=request.user_id,
+        message=request.message,
+        image_analysis=image_analysis
     )
 
-@app.get("/")
-def health_check():
-    return {"status": "ok"}
-
-@app.post("/chat")
-async def chat_endpoint(
-    user_id: str = Form(...),
-    message: str = Form(''),
-    image: UploadFile = File(None)
-):
-    try:
-        if image:
-            suffix = os.path.splitext(image.filename)[-1] or ".jpg"
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                shutil.copyfileobj(image.file, tmp)
-                tmp_path = tmp.name
-            analysis = chatbot.handle_image_upload(user_id, tmp_path, message)
-            response = chatbot.chat_with_image_context(user_id, message, image_analysis=analysis)
-            try:
-                os.unlink(tmp_path)
-            except Exception as e:
-                print(f"Warning: could not delete temp file: {e}")
-        else:
-            response = chatbot.chat_with_image_context(user_id, message)
-        return response
-    except Exception as e:
-        traceback.print_exc()
-        return JSONResponse(content={'error': str(e)}, status_code=500)
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    return ChatResponse(**response)
