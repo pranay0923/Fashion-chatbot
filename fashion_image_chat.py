@@ -3,7 +3,6 @@ import sqlite3
 import datetime
 import json
 import base64
-
 from openai import OpenAI
 
 # === FashionDatabase ===
@@ -156,7 +155,7 @@ class EnhancedFashionChatbot:
             try:
                 raw = image_analysis["raw_analysis"]
                 clean = raw.strip()
-                # --- BEGIN FIX --- (all strings quoted)
+                # Correct triple-backtick fence handling -- ALL QUOTED!
                 if clean.startswith("```json"):
                     clean = clean[7:]
                 elif clean.startswith("```
@@ -164,7 +163,6 @@ class EnhancedFashionChatbot:
                 if clean.endswith("```"):
                     clean = clean[:-3]
                 clean = clean.strip()
-                # --- END FIX ---
                 try:
                     parsed = json.loads(clean)
                     suggestion = (
