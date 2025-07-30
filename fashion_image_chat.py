@@ -23,7 +23,7 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 # ================================
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
-chatgpt = ChatOpenAI(model_name="gpt-4o", temperature=0.2)
+chatgpt = ChatOpenAI(model_name="gpt-4o", temperature=0.1)
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 
 
