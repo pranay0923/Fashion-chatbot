@@ -91,7 +91,6 @@ class FashionDatabase:
             )
         ]
 
-
 # === Recommendation Engine (Stub) ===
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
@@ -157,7 +156,6 @@ class EnhancedFashionChatbot:
             try:
                 raw = image_analysis["raw_analysis"]
                 clean = raw.strip()
-                # ---- FIXED: Always quote string literals! ----
                 if clean.startswith("```
                     clean = clean[7:]
                 elif clean.startswith("```"):
