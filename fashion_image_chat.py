@@ -78,7 +78,6 @@ class FashionDatabase:
         conn.close()
 
     def get_all_products(self):
-        # Minimal stub, expand this in real production
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -91,6 +90,7 @@ class FashionDatabase:
                 "Formal", "All Seasons", "Women", "Work", "Cotton"
             )
         ]
+
 
 # === Recommendation Engine (Stub) ===
 class FashionRecommendationEngine:
@@ -157,6 +157,7 @@ class EnhancedFashionChatbot:
             try:
                 raw = image_analysis["raw_analysis"]
                 clean = raw.strip()
+                # ---- FIXED: Always quote string literals! ----
                 if clean.startswith("```
                     clean = clean[7:]
                 elif clean.startswith("```"):
@@ -170,10 +171,10 @@ class EnhancedFashionChatbot:
                         parsed.get("Clothing Items")
                         or parsed.get("User's Specific Question", {}).get("Shirt Suggestion")
                         or parsed.get("Suggested Shirt")
-                        or raw  # fallback to the text block
+                        or raw  # fallback to text
                     )
                 except Exception:
-                    # Not JSON, just use the cleaned text as fallback
+                    # Not JSON, just use cleaned block as response
                     parsed = {}
                     suggestion = clean if clean else "Try a crisp white shirt or a pastel tee!"
                 return {
