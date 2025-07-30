@@ -1,71 +1,72 @@
+import os
+import tempfile
+import shutil
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import shutil
-import os
-import base64
+import uvicorn
+import traceback
 
-from fashion_image_chat import (
-    setup_openai_api,
+from Fashion_image_chat import (
+    EnhancedFashionChatbot,
     FashionDatabase,
     FashionRecommendationEngine,
-    create_fashion_vector_store,
-    EnhancedFashionChatbot
+    setup_openai_api,  # The function you wrote for model setup
 )
 
-# ==== Step 1: FastAPI Setup ====
-app = FastAPI()
+app = FastAPI(title="Fashion AI Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # You can restrict this to your frontend URL
+    allow_origins=["*"],  # Adjust in production!
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ==== Step 2: Global Chatbot Initialization ====
-chatgpt, openai_embed_model, openai_native_client = setup_openai_api()
+chatbot = None
 
-fashion_db = FashionDatabase()
-rec_engine = FashionRecommendationEngine(fashion_db)
-vectorstore = create_fashion_vector_store(fashion_db, openai_embed_model)
-fashion_retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5})
-
-chatbot = EnhancedFashionChatbot(
-    chatgpt, fashion_retriever, fashion_db, rec_engine, openai_native_client
-)
-
-# ==== Step 3: Routes ====
+@app.on_event("startup")
+def startup_event():
+    global chatbot
+    # Load OpenAI key from environment for security
+    chatgpt, openai_embed_model, openai_native_client = setup_openai_api()
+    db = FashionDatabase()
+    rec_engine = FashionRecommendationEngine(db)
+    # Rec engine can be enhanced to use retriever/vector search if desired
+    chatbot = EnhancedFashionChatbot(
+        chatgpt, None, db, rec_engine, openai_native_client
+    )
 
 @app.get("/")
-def read_root():
-    return {"message": "Fashion Chatbot API is running. Use the /chat endpoint to interact."}
-
+def health_check():
+    return {"status": "ok"}
 
 @app.post("/chat")
-async def chat_with_fashion_bot(user_id: str = Form(...), message: str = Form(...)):
+async def chat_endpoint(
+    user_id: str = Form(...),
+    message: str = Form(''),
+    image: UploadFile = File(None)
+):
     try:
-        response = chatbot.chat_with_image_context(user_id, message)
-        return JSONResponse(content=response)
+        if image:
+            suffix = os.path.splitext(image.filename)[-1] or ".jpg"
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                shutil.copyfileobj(image.file, tmp)
+                tmp_path = tmp.name
+            analysis = chatbot.handle_image_upload(user_id, tmp_path, message)
+            response = chatbot.chat_with_image_context(user_id, message, image_analysis=analysis)
+            try:
+                os.unlink(tmp_path)
+            except Exception as e:
+                print(f"Warning: could not delete temp file: {e}")
+        else:
+            response = chatbot.chat_with_image_context(user_id, message)
+        return response
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        traceback.print_exc()
+        return JSONResponse(content={'error': str(e)}, status_code=500)
 
-
-@app.post("/analyze-image")
-async def analyze_image(user_id: str = Form(...), query: str = Form("Analyze this fashion image"), file: UploadFile = File(...)):
-    try:
-        # Save uploaded image to uploads/ directory
-        upload_dir = "uploads"
-        os.makedirs(upload_dir, exist_ok=True)
-        file_location = os.path.join(upload_dir, file.filename)
-
-        with open(file_location, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        # Process the image and analyze it
-        result = chatbot.handle_image_upload(user_id, file_location, query=query)
-        return JSONResponse(content=result)
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
