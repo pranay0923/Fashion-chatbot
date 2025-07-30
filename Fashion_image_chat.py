@@ -3,14 +3,12 @@ import sqlite3
 import datetime
 import json
 
-# === Database Wrapper ===
 class FashionDatabase:
     def __init__(self):
         self.db_path = "fashion_data.db"
         self.setup()
 
     def setup(self):
-        """Create table and add missing columns safely."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("""
@@ -28,17 +26,13 @@ class FashionDatabase:
         for col, col_type in columns:
             try:
                 cursor.execute(f"ALTER TABLE user_behavior ADD COLUMN {col} {col_type}")
-                print(f"✅ Column '{col}' added to user_behavior table.")
             except sqlite3.OperationalError as e:
-                if "duplicate column name" in str(e).lower():
-                    print(f"ℹ️ Column '{col}' already exists.")
-                else:
+                if "duplicate column name" not in str(e).lower():
                     print(f"❌ Error adding column '{col}': {e}")
         conn.commit()
         conn.close()
 
     def get_all_products(self):
-        """Example stub data (14 fields per product)."""
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -52,13 +46,10 @@ class FashionDatabase:
             )
         ]
 
-# === Recommendation Engine (Stub) ===
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
         self.db = db
-    # Implement real recommendation logic here
 
-# === Enhanced Chatbot ===
 class EnhancedFashionChatbot:
     def __init__(self, chat_model, retriever, db, rec_engine, openai_client):
         self.chat_model = chat_model
@@ -68,37 +59,28 @@ class EnhancedFashionChatbot:
         self.client = openai_client
 
     def handle_image_upload(self, user_id: str, image_path: str, message: str):
-        """Simulate AI vision analysis + log user behavior."""
-        print(f"📸 Image saved: uploads/{os.path.basename(image_path)}")
-        print("🔍 Analyzing image with AI...")
-
-        # Simulated raw analysis JSON (no markdown fences)
         raw_analysis = json.dumps({
             "User's Specific Question": {
-                "Shirt Suggestion": "Opt for a loose, oversized white button-up linen shirt to complement the jeans for a relaxed vibe."
+                "Shirt Suggestion": "Try a loose pastel or linen shirt to match the jeans."
             },
             "Style Analysis": {
-                "Fashion Style": "Casual streetwear",
-                "Vibe": "Youthful and relaxed"
+                "Fashion Style": "Streetwear",
+                "Vibe": "Relaxed, casual"
             }
         }, indent=2)
 
         analysis_result = {
             "raw_analysis": raw_analysis,
-            "clothing_items": "Analysis available in raw_analysis",
-            "colors": "Analysis available in raw_analysis",
-            "style_analysis": "Analysis available in raw_analysis"
+            "clothing_items": "Available in raw_analysis",
+            "colors": "Available in raw_analysis",
+            "style_analysis": "Available in raw_analysis"
         }
 
-        # Log to DB
         try:
             conn = sqlite3.connect(self.db.db_path)
             cursor = conn.cursor()
             cursor.execute(
-                """
-                INSERT INTO user_behavior (user_id, message, image_id, action_type, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-                """,
+                "INSERT INTO user_behavior (user_id, message, image_id, action_type, timestamp) VALUES (?, ?, ?, ?, ?)",
                 (
                     user_id,
                     message,
@@ -109,53 +91,33 @@ class EnhancedFashionChatbot:
             )
             conn.commit()
             conn.close()
-            print("✅ User behavior logged.")
         except Exception as e:
-            print(f"❌ Error logging to DB: {e}")
+            print(f"❌ DB log error: {e}")
 
         return analysis_result
 
     def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
-        """Parse analysis JSON and provide reply; fallback if no valid analysis."""
         if image_analysis and "raw_analysis" in image_analysis:
             try:
                 raw_json = image_analysis["raw_analysis"]
-                print("🔍 raw_analysis:", raw_json)
-
                 clean_json = raw_json.strip()
-                # Remove markdown fences if any
                 if clean_json.startswith("```json"):
                     clean_json = clean_json[7:]
-                elif clean_json.startswith("```
+                elif clean_json.startswith("```"):
                     clean_json = clean_json[3:]
                 if clean_json.endswith("```"):
                     clean_json = clean_json[:-3]
                 clean_json = clean_json.strip()
 
                 parsed = json.loads(clean_json)
-
                 suggestion = (
                     parsed.get("User's Specific Question", {}).get("Shirt Suggestion") or
                     parsed.get("Suggested Shirt", {}).get("Details") or
                     parsed.get("Suggested Shirt") or
-                    "Try pairing it with a crisp white shirt or a pastel tee!"
+                    "Try pairing with a crisp white shirt or graphic tee!"
                 )
-
-                return {
-                    "user_id": user_id,
-                    "reply": suggestion,
-                    "image_analysis": parsed
-                }
+                return {"user_id": user_id, "reply": suggestion, "image_analysis": parsed}
             except Exception as e:
-                print(f"❌ JSON parse failed: {e}")
-                return {
-                    "user_id": user_id,
-                    "reply": f"⚠️ Could not parse image analysis: {str(e)}",
-                    "image_analysis": image_analysis
-                }
+                return {"user_id": user_id, "reply": f"⚠️ Error parsing image data: {e}", "image_analysis": image_analysis}
 
-        return {
-            "user_id": user_id,
-            "reply": "🤔 I don't know how to respond to that.",
-            "image_analysis": image_analysis or {}
-        }
+        return {"user_id": user_id, "reply": "🤔 I don't know how to respond to that.", "image_analysis": image_analysis or {}}
