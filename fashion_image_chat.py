@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[352]:
-
 
 # ===== PART 1: IMPORT ALL REQUIRED LIBRARIES =====
 import os
@@ -925,67 +920,4 @@ print("🎉 Enhanced Fashion Chatbot with Image Upload is ready to use!")
 enhanced_fashion_chat_interface()
 
 
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
+#
