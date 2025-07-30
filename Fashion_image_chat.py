@@ -81,7 +81,7 @@ class EnhancedFashionChatbot:
     def __init__(self):
         self.db = FashionDatabase()
         self.image_analyzer = ImageAnalyzer(openai_client)
-        self.model = ChatOpenAI(model_name="gpt-4o", temperature=0.3)
+        self.model = ChatOpenAI(model_name="gpt-4o", temperature=0.1)
 
     def handle_image_upload(self, user_id, image_path, message):
         analysis = self.image_analyzer.analyze(image_path, message)
