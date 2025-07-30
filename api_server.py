@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os, sqlite3
 
-from fashion_chatbot import (
+from Fashion_chatbot import (
     FashionChatbot,
     FashionDatabase,
     FashionRecommendationEngine,
