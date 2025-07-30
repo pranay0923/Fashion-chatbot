@@ -155,6 +155,8 @@ class EnhancedFashionChatbot:
             try:
                 raw = image_analysis["raw_analysis"]
                 clean = raw.strip()
+
+                # Correctly remove fenced code block markers from start and end if present
                 if clean.startswith("```
                     clean = clean[7:]
                 elif clean.startswith("```"):
@@ -162,6 +164,7 @@ class EnhancedFashionChatbot:
                 if clean.endswith("```
                     clean = clean[:-3]
                 clean = clean.strip()
+
                 try:
                     parsed = json.loads(clean)
                     suggestion = (
@@ -171,6 +174,7 @@ class EnhancedFashionChatbot:
                         or raw
                     )
                 except Exception:
+                    # If parsing fails, just fallback gracefully
                     parsed = {}
                     suggestion = clean if clean else "Try a crisp white shirt or a pastel tee!"
                 return {
