@@ -11,7 +11,7 @@ import uvicorn
 import tempfile
 import traceback
 
-from Fashion_image_chat import (
+from fashion_image_chat import (
     EnhancedFashionChatbot,
     FashionDatabase,
     FashionRecommendationEngine
