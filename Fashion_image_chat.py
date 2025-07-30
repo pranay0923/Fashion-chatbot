@@ -18,16 +18,13 @@ class FashionDatabase:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
                 timestamp TEXT NOT NULL
-                -- Additional columns added below safely
             )
         """)
-
         columns = [
             ("image_id", "TEXT"),
             ("message", "TEXT"),
             ("action_type", "TEXT NOT NULL DEFAULT 'unknown'")
         ]
-
         for col, col_type in columns:
             try:
                 cursor.execute(f"ALTER TABLE user_behavior ADD COLUMN {col} {col_type}")
@@ -37,12 +34,11 @@ class FashionDatabase:
                     print(f"ℹ️ Column '{col}' already exists.")
                 else:
                     print(f"❌ Error adding column '{col}': {e}")
-
         conn.commit()
         conn.close()
 
     def get_all_products(self):
-        """Example products with 14 fields, replace with real DB queries."""
+        """Example products (stub, 14 fields)"""
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -60,8 +56,7 @@ class FashionDatabase:
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
         self.db = db
-    # Add recommendation logic here when ready
-
+    # Add real logic as needed
 
 # === Enhanced Chatbot ===
 class EnhancedFashionChatbot:
@@ -73,11 +68,11 @@ class EnhancedFashionChatbot:
         self.client = openai_client
 
     def handle_image_upload(self, user_id: str, image_path: str, message: str):
-        """Simulate AI vision analysis and log behavior."""
+        """Simulate image AI analysis, log event, return analysis dict."""
         print(f"📸 Image saved to: uploads/{os.path.basename(image_path)}")
         print("🔍 Analyzing image with AI...")
 
-        # Simulated raw analysis JSON string (without markdown fences)
+        # Simulated analysis JSON (without markdown code fences)
         raw_analysis = json.dumps({
             "User's Specific Question": {
                 "Shirt Suggestion": "Opt for a loose, oversized white button-up linen shirt to complement the jeans for a relaxed vibe."
@@ -95,7 +90,6 @@ class EnhancedFashionChatbot:
             "style_analysis": "Analysis available in raw_analysis"
         }
 
-        # Log behavior data to the DB
         try:
             conn = sqlite3.connect(self.db.db_path)
             cursor = conn.cursor()
@@ -122,8 +116,8 @@ class EnhancedFashionChatbot:
 
     def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
         """
-        Parse the image analysis dict's raw JSON, extract suggestion,
-        or fallback if no valid analysis is given.
+        Parse image_analysis JSON and reply accordingly.
+        Falls back to a generic reply if there's no analysis or parse error.
         """
         if image_analysis and "raw_analysis" in image_analysis:
             try:
@@ -131,7 +125,6 @@ class EnhancedFashionChatbot:
                 print("🔍 raw_analysis:", raw_json)
 
                 clean_json = raw_json.strip()
-
                 # Remove markdown code fences if present
                 if clean_json.startswith("```
                     clean_json = clean_json[7:]
@@ -149,13 +142,11 @@ class EnhancedFashionChatbot:
                     parsed.get("Suggested Shirt") or
                     "Try pairing it with a crisp white shirt or a pastel tee!"
                 )
-
                 return {
                     "user_id": user_id,
                     "reply": suggestion,
                     "image_analysis": parsed
                 }
-
             except Exception as e:
                 print(f"❌ JSON parsing failed: {e}")
                 return {
@@ -164,7 +155,6 @@ class EnhancedFashionChatbot:
                     "image_analysis": image_analysis
                 }
 
-        # Fallback reply if no image analysis
         return {
             "user_id": user_id,
             "reply": "🤔 I don't know how to respond to that.",
