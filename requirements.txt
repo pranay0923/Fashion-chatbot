@@ -6,6 +6,7 @@ scikit-learn
 numpy
 streamlit
 requests
+faiss-cpu
 langchain
 langchain-chroma
 langchain-openai
@@ -14,6 +15,5 @@ chromadb
 pillow
 uvicorn[standard]
 python-multipart
-faiss-cpu
 
 
