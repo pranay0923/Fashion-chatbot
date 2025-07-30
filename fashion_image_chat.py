@@ -4,7 +4,7 @@ import datetime
 import json
 import base64
 
-import openai
+from openai import OpenAI
 
 class FashionDatabase:
     def __init__(self, db_path="fashion_data.db"):
@@ -113,6 +113,7 @@ class EnhancedFashionChatbot:
         if image_analysis and "raw_analysis" in image_analysis:
             try:
                 raw = image_analysis["raw_analysis"].strip()
+                # Properly quoted strings, no unterminated literals:
                 if raw.startswith("```
                     clean = raw[7:]
                 elif raw.startswith("```"):
@@ -122,6 +123,7 @@ class EnhancedFashionChatbot:
                 if clean.endswith("```
                     clean = clean[:-3]
                 clean = clean.strip()
+
                 try:
                     parsed = json.loads(clean)
                     suggestion = (
@@ -133,6 +135,7 @@ class EnhancedFashionChatbot:
                 except Exception:
                     parsed = {}
                     suggestion = clean or "Try a crisp white shirt or a pastel tee!"
+
                 return {
                     "user_id": user_id,
                     "answer": suggestion,
