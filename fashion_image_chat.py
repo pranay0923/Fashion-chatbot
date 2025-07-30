@@ -126,7 +126,7 @@ class EnhancedFashionChatbot:
                 ],
                 max_tokens=900
             )
-            content = response.choices[0].message.content
+            content = response.choices.message.content
             raw_analysis = content.strip()
         except Exception as e:
             print(f"❌ AI image analysis failed: {e}")
@@ -156,15 +156,15 @@ class EnhancedFashionChatbot:
             try:
                 raw = image_analysis["raw_analysis"]
                 clean = raw.strip()
-                # === Begin corrected code fence stripper ===
-                if clean.startswith("```
+                # --- BEGIN FIX --- (all strings quoted)
+                if clean.startswith("```json"):
                     clean = clean[7:]
-                elif clean.startswith("```"):
+                elif clean.startswith("```
                     clean = clean[3:]
-                if clean.endswith("```
+                if clean.endswith("```"):
                     clean = clean[:-3]
                 clean = clean.strip()
-                # === End corrected code fence stripper ===
+                # --- END FIX ---
                 try:
                     parsed = json.loads(clean)
                     suggestion = (
