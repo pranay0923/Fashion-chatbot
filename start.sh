@@ -1,2 +1,2 @@
 #!/bin/bash
-uvicorn api_server:app --host 0.0.0.0 --port 8000
+uvicorn api_server:app --host 0.0.0.0 --port 10000
