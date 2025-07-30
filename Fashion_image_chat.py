@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import datetime
+import json
 
 # === Database Wrapper ===
 class FashionDatabase:
@@ -12,41 +13,28 @@ class FashionDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # ✅ Add 'image_id' column if missing
-        try:
-            cursor.execute("ALTER TABLE user_behavior ADD COLUMN image_id TEXT")
-            print("✅ Column 'image_id' added to user_behavior table.")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" in str(e):
-                print("ℹ️ Column 'image_id' already exists.")
-            else:
-                print("❌ Error altering table (image_id):", e)
+        # Add missing columns if needed
+        columns = [
+            ("image_id", "TEXT"),
+            ("message", "TEXT"),
+            ("action_type", "TEXT NOT NULL DEFAULT 'unknown'")
+        ]
 
-        # ✅ Add 'message' column if missing
-        try:
-            cursor.execute("ALTER TABLE user_behavior ADD COLUMN message TEXT")
-            print("✅ Column 'message' added to user_behavior table.")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" in str(e):
-                print("ℹ️ Column 'message' already exists.")
-            else:
-                print("❌ Error altering table (message):", e)
-
-        # ✅ Add 'action_type' column if missing
-        try:
-            cursor.execute("ALTER TABLE user_behavior ADD COLUMN action_type TEXT NOT NULL DEFAULT 'unknown'")
-            print("✅ Column 'action_type' added to user_behavior table.")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" in str(e):
-                print("ℹ️ Column 'action_type' already exists.")
-            else:
-                print("❌ Error altering table (action_type):", e)
+        for col, col_type in columns:
+            try:
+                cursor.execute(f"ALTER TABLE user_behavior ADD COLUMN {col} {col_type}")
+                print(f"✅ Column '{col}' added to user_behavior table.")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e):
+                    print(f"ℹ️ Column '{col}' already exists.")
+                else:
+                    print(f"❌ Error altering table ({col}):", e)
 
         conn.commit()
         conn.close()
 
     def get_all_products(self):
-        # ✅ Return 14 fields per product
+        # 14 fields per product
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -60,12 +48,10 @@ class FashionDatabase:
             )
         ]
 
-
 # === Recommendation Engine (Stub) ===
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
         self.db = db
-
 
 # === Enhanced Chatbot ===
 class EnhancedFashionChatbot:
@@ -77,17 +63,27 @@ class EnhancedFashionChatbot:
         self.client = openai_client
 
     def handle_image_upload(self, user_id: str, image_path: str, message: str):
-        # Simulate analysis
         print(f"📸 Image saved to: uploads/{os.path.basename(image_path)}")
         print("🔍 Analyzing image with AI...")
 
+        # Simulated image analysis result
         analysis_result = {
             "success": True,
             "analysis": {
-                "raw_analysis": "```json\n{\n  \"Suggested Shirt\": \"White linen oversized shirt\"\n}\n```",
+                "raw_analysis": '''```json
+{
+  "User's Specific Question": {
+    "Shirt Suggestion": "Opt for a loose, oversized white button-up linen shirt to complement the jeans for a relaxed vibe."
+  },
+  "Style Analysis": {
+    "Fashion Style": "Casual streetwear",
+    "Vibe": "Youthful and relaxed"
+  }
+}
+```''',
                 "clothing_items": "Analysis available in raw_analysis",
                 "colors": "Analysis available in raw_analysis",
-                "style_analysis": "Analysis available in raw_analysis",
+                "style_analysis": "Analysis available in raw_analysis"
             }
         }
 
@@ -95,7 +91,6 @@ class EnhancedFashionChatbot:
         try:
             conn = sqlite3.connect(self.db.db_path)
             cursor = conn.cursor()
-
             cursor.execute(
                 """
                 INSERT INTO user_behavior (user_id, message, image_id, action_type, timestamp)
@@ -119,8 +114,32 @@ class EnhancedFashionChatbot:
         return analysis_result
 
     def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
+        if image_analysis and "raw_analysis" in image_analysis:
+            try:
+                # Parse the raw JSON block
+                raw_json = image_analysis["raw_analysis"]
+                raw_json = raw_json.strip("```json").strip("```").strip()
+                parsed = json.loads(raw_json)
+
+                # Try different fallbacks
+                suggestion = parsed.get("User's Specific Question", {}).get("Shirt Suggestion") or \
+                             parsed.get("Suggested Shirt", {}).get("Details") or \
+                             "How about trying a crisp white button-down shirt?"
+
+                return {
+                    "user_id": user_id,
+                    "reply": suggestion,
+                    "image_analysis": parsed
+                }
+            except Exception as e:
+                return {
+                    "user_id": user_id,
+                    "reply": f"Sorry, I couldn't interpret the image properly. Error: {str(e)}",
+                    "image_analysis": image_analysis
+                }
+
         return {
             "user_id": user_id,
-            "reply": "You can pair that with a loose-fit white shirt or a pastel oversized tee!",
+            "reply": "🤔 I don't know how to respond to that.",
             "image_analysis": image_analysis or {}
         }
