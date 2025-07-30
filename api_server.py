@@ -1,8 +1,8 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import os
-import sqlite3
+import os, sqlite3
+
 from fashion_chatbot import (
     FashionChatbot,
     FashionDatabase,
@@ -17,39 +17,30 @@ from fashion_chatbot import (
 import uvicorn
 
 app = FastAPI(title="Fashion Chatbot API")
-
-# CORS setup - allow your frontend domain here
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change "*" to your frontend origin in production, e.g. https://yourdomain.com
+    allow_origins=["*"],  # Restrict to your domain in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Global chatbot variable
 chatbot = None
 
 @app.on_event("startup")
 def startup_event():
     global chatbot
     os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
-
     chatgpt = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.1)
     openai_embed_model = OpenAIEmbeddings(model="text-embedding-3-small")
-
     fashion_db = FashionDatabase()
-    # Load fashion data if necessary (optional)
-    # load_fashion_data(fashion_db)  # Uncomment if you have a loader function
-
-    # Build vector DB from DB products
+    # Load vector DB
     fashion_docs = []
     conn = sqlite3.connect(fashion_db.db_path)
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM products")
     products = cursor.fetchall()
     conn.close()
-
     for product in products:
         content = f"""
         Product: {product[1]}
@@ -76,10 +67,8 @@ def startup_event():
             }
         )
         fashion_docs.append(doc)
-
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunked_docs = splitter.split_documents(fashion_docs)
-
     fashion_db_vector = Chroma.from_documents(
         documents=chunked_docs,
         collection_name="fashion_db",
@@ -87,20 +76,19 @@ def startup_event():
         collection_metadata={"hnsw:space": "cosine"},
         persist_directory="./fashion_vector_db",
     )
-
     fashion_retriever = fashion_db_vector.as_retriever(
         search_type="similarity_score_threshold",
         search_kwargs={"k": 8, "score_threshold": 0.3},
     )
-
     rec_engine = FashionRecommendationEngine(fashion_db, fashion_retriever)
-    chatbot = FashionChatbot(chatgpt, fashion_retriever, fashion_db, rec_engine)
-
+    chatbot_obj = FashionChatbot(chatgpt, fashion_retriever, fashion_db, rec_engine)
+    # Set global
+    global chatbot
+    chatbot = chatbot_obj
 
 @app.get("/")
 async def root():
     return {"status": "ok"}
-
 
 @app.post("/chat")
 async def chat(
@@ -109,36 +97,15 @@ async def chat(
     image: UploadFile = File(None),
 ):
     """
-    Accept both text message and optional image upload in multipart form.
-    Process the chat query and optionally the image.
+    Accept text and/or image, return assistant's response and optionally information about the image.
     """
-
     try:
-        # If an image is uploaded, read bytes (expand your processing if needed)
-        if image is not None:
-            image_content = await image.read()
-            # For now, just log or acknowledge image upload; extend with vision tasks if you want
-            # e.g., fashion attributes extraction here
-        else:
-            image_content = None
-
-        # Invoke chatbot logic. You can extend FashionChatbot.chat to optionally accept image bytes if desired.
-        response = chatbot.chat(user_id, message)  # Current chatbot interface doesn't use image_content
-
-        # If image received, optionally append info
-        if image_content:
-            response[
-                "answer"
-            ] += "\n\n[Note: Image received and can be processed for fashion analysis.]"
-
+        image_content = await image.read() if image is not None else None
+        response = chatbot.chat(user_id, message, image_bytes=image_content)
         return response
-
     except Exception as e:
-        # Log error details for debugging
         print(f"Error in /chat endpoint: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
-
 if __name__ == "__main__":
-    # You can override host/port by env vars if needed
     uvicorn.run(app, host="0.0.0.0", port=8000)
