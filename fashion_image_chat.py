@@ -84,7 +84,7 @@ class EnhancedFashionChatbot:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o", temperature=0.1,
                 messages=[
                     {
                         "role": "user",
