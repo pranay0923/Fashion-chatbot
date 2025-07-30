@@ -34,7 +34,7 @@ class FashionDatabase:
         conn.close()
 
     def get_all_products(self):
-        # 14 fields per product
+        # Return 14 fields per product
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -116,25 +116,35 @@ class EnhancedFashionChatbot:
     def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
         if image_analysis and "raw_analysis" in image_analysis:
             try:
-                # Parse the raw JSON block
                 raw_json = image_analysis["raw_analysis"]
-                raw_json = raw_json.strip("```json").strip("```").strip()
+                print("🔎 Raw analysis received:", raw_json)
+
+                # Remove formatting wrappers
+                if raw_json.startswith("```json"):
+                    raw_json = raw_json[7:]
+                raw_json = raw_json.strip("`\n ")
+
                 parsed = json.loads(raw_json)
 
-                # Try different fallbacks
-                suggestion = parsed.get("User's Specific Question", {}).get("Shirt Suggestion") or \
-                             parsed.get("Suggested Shirt", {}).get("Details") or \
-                             "How about trying a crisp white button-down shirt?"
+                # Try various fields
+                suggestion = (
+                    parsed.get("User's Specific Question", {}).get("Shirt Suggestion") or
+                    parsed.get("Suggested Shirt", {}).get("Details") or
+                    parsed.get("Suggested Shirt") or
+                    "Try pairing it with a crisp white shirt or a pastel tee!"
+                )
 
                 return {
                     "user_id": user_id,
                     "reply": suggestion,
                     "image_analysis": parsed
                 }
+
             except Exception as e:
+                print("❌ Error parsing raw_analysis:", e)
                 return {
                     "user_id": user_id,
-                    "reply": f"Sorry, I couldn't interpret the image properly. Error: {str(e)}",
+                    "reply": f"Sorry, I couldn't interpret the outfit. Error: {str(e)}",
                     "image_analysis": image_analysis
                 }
 
