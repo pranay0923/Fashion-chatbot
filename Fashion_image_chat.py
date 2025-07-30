@@ -32,6 +32,16 @@ class FashionDatabase:
             else:
                 print("❌ Error altering table (message):", e)
 
+        # ✅ Add 'action_type' column if missing
+        try:
+            cursor.execute("ALTER TABLE user_behavior ADD COLUMN action_type TEXT NOT NULL DEFAULT 'unknown'")
+            print("✅ Column 'action_type' added to user_behavior table.")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e):
+                print("ℹ️ Column 'action_type' already exists.")
+            else:
+                print("❌ Error altering table (action_type):", e)
+
         conn.commit()
         conn.close()
 
@@ -88,13 +98,14 @@ class EnhancedFashionChatbot:
 
             cursor.execute(
                 """
-                INSERT INTO user_behavior (user_id, message, image_id, timestamp)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO user_behavior (user_id, message, image_id, action_type, timestamp)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
                     message,
                     os.path.basename(image_path),
+                    "image_upload",
                     datetime.datetime.now().isoformat()
                 )
             )
