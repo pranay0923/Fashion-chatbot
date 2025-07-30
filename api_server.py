@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os, sqlite3
 
-from Fashion_chatbot import (
+from fashion_chatbot import (
     FashionChatbot,
     FashionDatabase,
     FashionRecommendationEngine,
@@ -13,8 +13,6 @@ from Fashion_chatbot import (
     RecursiveCharacterTextSplitter,
     Document,
 )
-
-from langchain_chroma import Chroma
 
 import uvicorn
 
