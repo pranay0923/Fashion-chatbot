@@ -38,7 +38,7 @@ class FashionDatabase:
         conn.close()
 
     def get_all_products(self):
-        """Example stub data (14 fields per product). Replace with real DB queries."""
+        """Example stub data (14 fields per product)."""
         return [
             (
                 1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
@@ -124,11 +124,11 @@ class EnhancedFashionChatbot:
 
                 clean_json = raw_json.strip()
                 # Remove markdown fences if any
-                if clean_json.startswith("```
+                if clean_json.startswith("```json"):
                     clean_json = clean_json[7:]
-                elif clean_json.startswith("```"):
+                elif clean_json.startswith("```
                     clean_json = clean_json[3:]
-                if clean_json.endswith("```
+                if clean_json.endswith("```"):
                     clean_json = clean_json[:-3]
                 clean_json = clean_json.strip()
 
