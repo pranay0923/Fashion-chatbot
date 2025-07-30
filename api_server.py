@@ -1,52 +1,51 @@
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
-import base64
-import uuid
-import os
-from Fashion_image_chat import ImageAnalysisService
-from openai import OpenAI
+# api_server.py
 
-# --- Setup ---
+from fastapi import FastAPI, UploadFile, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fashion_image_chat import FashionImageChatHandler
+from io import BytesIO
+
+# Initialize app and handler
 app = FastAPI()
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+fashion_handler = FashionImageChatHandler()
 
-# --- Load API Key from env ---
-openai_key = os.getenv("OPENAI_API_KEY", "your-openai-key")
-openai_client = OpenAI(api_key=openai_key)
-image_analyzer = ImageAnalysisService(openai_client)
+# CORS setup (adjust origins as needed)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change to frontend domain for security
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# --- Request Schema ---
-class ChatRequest(BaseModel):
-    user_id: str
-    message: str
-    image_base64: str = None
+@app.get("/")
+def root():
+    return {"message": "Fashion Chatbot API is running. Use the /chat endpoint to interact."}
 
-# --- Endpoint ---
+
 @app.post("/chat")
-async def chat(req: ChatRequest):
-    user_query = req.message or "Analyze this image"
-    image_analysis = None
+async def chat_endpoint(
+    user_id: str = Form(...),
+    message: str = Form(""),
+    image: UploadFile = None
+):
+    try:
+        if image:
+            # Wrap UploadFile bytes into BytesIO
+            image_file = BytesIO(await image.read())
+            image_file.name = image.filename
+            image_file.type = image.content_type
 
-    if req.image_base64:
-        try:
-            header, encoded = req.image_base64.split(",", 1)
-            image_bytes = base64.b64decode(encoded)
-            file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}.jpg")
-            with open(file_path, "wb") as f:
-                f.write(image_bytes)
-
-            # Analyze the image
-            image_analysis = image_analyzer.analyze_fashion_image(file_path, user_query)
-        except Exception as e:
-            image_analysis = {"error": str(e)}
-
-    # Construct answer (mock or real)
-    answer = "Here's what I found based on the image and your message."
-    if image_analysis and isinstance(image_analysis, dict) and "raw_analysis" in image_analysis:
-        answer = image_analysis["raw_analysis"]
-
-    return {
-        "answer": answer,
-        "image_analysis": image_analysis
-    }
+            result = fashion_handler.process_image_and_chat(user_id, image_file, message)
+            return JSONResponse(content=result)
+        else:
+            return JSONResponse(
+                content={"answer": "🗨️ You didn't upload an image. Please upload a fashion image."},
+                status_code=200
+            )
+    except Exception as e:
+        return JSONResponse(
+            content={"error": str(e), "message": "Something went wrong processing your request."},
+            status_code=500
+        )
