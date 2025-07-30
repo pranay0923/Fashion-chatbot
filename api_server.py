@@ -19,7 +19,7 @@ import uvicorn
 app = FastAPI(title="Fashion Chatbot API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict to your domain in production
+    allow_origins=["*"],  # Restrict for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,7 +34,7 @@ def startup_event():
     chatgpt = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.1)
     openai_embed_model = OpenAIEmbeddings(model="text-embedding-3-small")
     fashion_db = FashionDatabase()
-    # Load vector DB
+    # ... build vector db
     fashion_docs = []
     conn = sqlite3.connect(fashion_db.db_path)
     cursor = conn.cursor()
@@ -82,7 +82,6 @@ def startup_event():
     )
     rec_engine = FashionRecommendationEngine(fashion_db, fashion_retriever)
     chatbot_obj = FashionChatbot(chatgpt, fashion_retriever, fashion_db, rec_engine)
-    # Set global
     global chatbot
     chatbot = chatbot_obj
 
@@ -96,9 +95,6 @@ async def chat(
     message: str = Form(""),
     image: UploadFile = File(None),
 ):
-    """
-    Accept text and/or image, return assistant's response and optionally information about the image.
-    """
     try:
         image_content = await image.read() if image is not None else None
         response = chatbot.chat(user_id, message, image_bytes=image_content)
