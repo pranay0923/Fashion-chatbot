@@ -14,5 +14,6 @@ chromadb
 pillow
 uvicorn[standard]
 python-multipart
+faiss-cpu
 
 
