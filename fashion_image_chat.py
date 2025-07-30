@@ -91,6 +91,7 @@ class FashionDatabase:
             )
         ]
 
+
 # === Recommendation Engine (Stub) ===
 class FashionRecommendationEngine:
     def __init__(self, db: FashionDatabase):
@@ -169,10 +170,10 @@ class EnhancedFashionChatbot:
                         parsed.get("Clothing Items")
                         or parsed.get("User's Specific Question", {}).get("Shirt Suggestion")
                         or parsed.get("Suggested Shirt")
-                        or raw  # fallback to text
+                        or raw  # fallback to raw text
                     )
                 except Exception:
-                    # Not JSON, just use cleaned block as response
+                    # Not JSON, just use the cleaned string
                     parsed = {}
                     suggestion = clean if clean else "Try a crisp white shirt or a pastel tee!"
                 return {
