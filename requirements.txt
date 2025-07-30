@@ -7,6 +7,7 @@ numpy
 streamlit
 requests
 langchain
+langchain-chroma
 langchain-openai
 langchain-community
 chromadb
