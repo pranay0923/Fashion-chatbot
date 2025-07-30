@@ -1,8 +1,11 @@
 # api_server.py
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.exceptions import RequestValidationError, HTTPException
+from fastapi.exception_handlers import http_exception_handler
+
 import os
 import uvicorn
 import tempfile
@@ -20,42 +23,61 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 import openai
 
-# === FastAPI App Initialization ===
+
+# === App Initialization ===
 app = FastAPI(title="Style Pat Fashion Chatbot API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ⚠️ You can restrict in production
+    allow_origins=["*"],  # Restrict this in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# === Global Chatbot Variable ===
-chatbot = None
+chatbot = None  # Global chatbot instance
 
-# === Startup Logic ===
+
+# === Global Exception Handlers ===
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    traceback.print_exc()
+    print(f"❌ Global Exception Caught: {str(exc)}")
+    return PlainTextResponse(f"Internal Server Error: {str(exc)}", status_code=500)
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"❌ Validation Error: {exc}")
+    return await http_exception_handler(request, exc)
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler_custom(request: Request, exc: HTTPException):
+    print(f"❌ HTTP Exception: {exc}")
+    return await http_exception_handler(request, exc)
+
+
+# === Startup Event ===
 @app.on_event("startup")
 def startup_event():
     global chatbot
     print("🚀 Starting chatbot...")
 
     try:
-        # --- Load API Key ---
+        # Load and check API Key
         openai_key = os.getenv("OPENAI_API_KEY")
         if not openai_key:
-            raise RuntimeError("❌ OPENAI_API_KEY not set!")
+            raise RuntimeError("❌ OPENAI_API_KEY environment variable is not set.")
 
         os.environ["OPENAI_API_KEY"] = openai_key
         openai_native_client = openai.OpenAI(api_key=openai_key)
 
-        # --- Initialize Models & DB ---
+        # Initialize chatbot components
         chatgpt = ChatOpenAI(model_name="gpt-4o", temperature=0.1)
         embed_model = OpenAIEmbeddings(model="text-embedding-3-small")
         fashion_db = FashionDatabase()
         rec_engine = FashionRecommendationEngine(fashion_db)
 
-        # --- Build Vector Store ---
+        # Vector store setup
         products = fashion_db.get_all_products()
         documents = []
         for product in products:
@@ -91,7 +113,7 @@ def startup_event():
         vectorstore = FAISS.from_documents(chunks, embedding=embed_model)
         retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 8})
 
-        # --- Initialize Chatbot ---
+        # Instantiate enhanced chatbot
         chatbot = EnhancedFashionChatbot(chatgpt, retriever, fashion_db, rec_engine, openai_native_client)
         print("✅ Chatbot initialized successfully")
 
@@ -100,12 +122,14 @@ def startup_event():
         print(f"❌ Startup failed: {e}")
         raise e
 
+
 # === Health Check ===
 @app.get("/")
 async def root():
     return {"status": "ok"}
 
-# === Main Chat Endpoint ===
+
+# === Chat Endpoint ===
 @app.post("/chat")
 async def chat(
     user_id: str = Form(...),
@@ -113,47 +137,48 @@ async def chat(
     image: UploadFile = File(None),
 ):
     try:
-        print(f"📩 User ID: {user_id}")
+        print(f"📩 Incoming request from user: {user_id}")
         print(f"📝 Message: {message}")
-        image_content = await image.read() if image else None
-        has_image = bool(image_content)
-        print(f"📷 Image attached: {has_image}")
+        print(f"📷 Image received: {image is not None}")
 
-        # If image uploaded
-        if has_image:
-            # Save image to temp file
+        image_content = None
+        if image:
+            try:
+                image_content = await image.read()
+                print(f"📥 Image read successful — size: {len(image_content)} bytes")
+            except Exception as read_err:
+                print("❌ Failed to read image:", read_err)
+
+        # If image was uploaded, analyze and use it
+        if image_content:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
                 tmp_file.write(image_content)
                 tmp_file.flush()
                 tmp_path = tmp_file.name
+                print(f"🖼️ Image saved to: {tmp_path}")
 
-            print(f"🖼️ Image saved to temp path: {tmp_path}")
-
-            # Analyze the image
             analysis_result = chatbot.handle_image_upload(user_id, tmp_path, message)
 
             if not analysis_result.get("success", False):
-                error_message = analysis_result.get("error", "Unknown image error")
-                print(f"⚠️ Image analysis failed: {error_message}")
-                return JSONResponse({"error": f"Image processing failed: {error_message}"}, status_code=500)
+                print(f"⚠️ Image analysis failed: {analysis_result.get('error')}")
+                return JSONResponse({"error": "Image analysis failed."}, status_code=500)
 
-            # Generate response with image context
             response = chatbot.chat_with_image_context(
                 user_id, message, image_analysis=analysis_result.get("analysis", {})
             )
-            print("✅ Response generated with image context")
         else:
-            # Generate response without image
+            print("💬 No image attached — text-only message.")
             response = chatbot.chat_with_image_context(user_id, message)
-            print("✅ Response generated without image")
 
+        print("✅ Chat response ready.")
         return response
 
     except Exception as e:
         traceback.print_exc()
-        print(f"❌ Error in /chat endpoint: {e}")
+        print(f"❌ Error in /chat endpoint: {str(e)}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
-# === Local Dev Mode ===
+
+# === Main Entry Point for Local Dev ===
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
