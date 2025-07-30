@@ -1,196 +1,183 @@
+# Fashion_image_chat.py
 import os
-import sqlite3
-import datetime
-import json
-import base64
-from openai import OpenAI
+from typing import Optional, Dict, Any, List
 
-# === FashionDatabase ===
+# Placeholders for actual imports from your libraries
+import openai
+from langchain.chat_models import ChatOpenAI
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from fastapi.responses import JSONResponse
+
+# --- Your existing logic classes and data below ---
+
 class FashionDatabase:
-    def __init__(self, db_path="fashion_data.db"):
-        self.db_path = db_path
-        self.setup()
+    def __init__(self):
+        # Initialize your fashion product database, load products, categories, styles, etc.
+        self.products = self._load_products()
 
-    def setup(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_behavior (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                action_type TEXT,
-                product_id INTEGER,
-                image_id TEXT,
-                query TEXT,
-                preferences TEXT
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_images (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                image_path TEXT NOT NULL,
-                image_description TEXT,
-                detected_items TEXT,
-                color_analysis TEXT,
-                style_analysis TEXT,
-                upload_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.commit()
-        conn.close()
-
-    def save_user_image(self, user_id, image_path, description=None, detected_items=None, color_analysis=None, style_analysis=None):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO user_images (user_id, image_path, image_description, detected_items, color_analysis, style_analysis)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            user_id, image_path, description,
-            json.dumps(detected_items) if detected_items else None,
-            json.dumps(color_analysis) if color_analysis else None,
-            json.dumps(style_analysis) if style_analysis else None
-        ))
-        image_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        return image_id
-
-    def track_user_behavior(self, user_id, action_type, product_id=None, image_id=None, query=None, preferences=None):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO user_behavior (user_id, timestamp, action_type, product_id, image_id, query, preferences)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            user_id,
-            datetime.datetime.utcnow().isoformat(),
-            action_type,
-            product_id,
-            image_id,
-            query,
-            json.dumps(preferences) if preferences else None
-        ))
-        conn.commit()
-        conn.close()
-
-    def get_all_products(self):
+    def _load_products(self):
+        # Replace with actual data loading logic
         return [
-            (
-                1, "Denim Jeans", "Bottoms", "Jeans", "Levis", 59.99, "Blue", "M",
-                "High-waisted straight-leg jeans with button detail",
-                "Street", "Summer", "Unisex", "Casual", "Denim"
-            ),
-            (
-                2, "White Shirt", "Tops", "Shirt", "Zara", 39.99, "White", "L",
-                "Oversized white cotton shirt with rolled sleeves",
-                "Formal", "All Seasons", "Women", "Work", "Cotton"
-            )
+            # Dummy example entries
+            {"id": 1, "name": "Red Dress", "color": "red", "style": "casual"},
+            {"id": 2, "name": "Blue Jeans", "color": "blue", "style": "denim"},
+            # ... add more
         ]
 
-# === Recommendation Engine ===
-class FashionRecommendationEngine:
-    def __init__(self, db: FashionDatabase):
-        self.db = db
+    def get_all_products(self):
+        return self.products
 
-# === EnhancedFashionChatbot ===
+
+class FashionRecommendationEngine:
+    def __init__(self, fashion_db: FashionDatabase):
+        self.db = fashion_db
+
+    def recommend(self, user_profile: Dict[str, Any], top_k: int=3) -> List[Dict[str, Any]]:
+        # Dummy recommendation logic: recommend some products based on user profile or query
+        # Replace with your actual matching or embedding similarity logic
+        return self.db.get_all_products()[:top_k]
+
+
+def create_fashion_vector_store(fashion_db: FashionDatabase, embed_model: OpenAIEmbeddings) -> FAISS:
+    # You should index your products or fashion items for similarity search
+    
+    # Example dummy corpus to index (product descriptions or titles)
+    corpus = [product["name"] + " " + product["color"] + " " + product["style"] for product in fashion_db.get_all_products()]
+    # Create embeddings for corpus (mock implementation)
+    embeddings = [embed_model.embed_query(text) for text in corpus]  # adjust per your actual embedding method
+
+    # Create FAISS vectorstore - this is pseudocode, adjust to your actual usage
+    vectorstore = FAISS.from_texts(corpus, embed_model)
+    return vectorstore
+
+
 class EnhancedFashionChatbot:
-    def __init__(self, chat_model, retriever, db, rec_engine, openai_client: OpenAI):
+    def __init__(self, chat_model: ChatOpenAI, retriever, fashion_db: FashionDatabase, rec_engine: FashionRecommendationEngine, openai_native_client):
         self.chat_model = chat_model
         self.retriever = retriever
-        self.db = db
+        self.fashion_db = fashion_db
         self.rec_engine = rec_engine
-        self.client = openai_client
+        self.openai = openai_native_client
+        self.user_contexts = {}  # Store per-user chat history if needed
 
-    def handle_image_upload(self, user_id: str, image_path: str, message: str):
-        print(f"📸 Saving image: {image_path}")
+    def chat(self, user_id: str, message: str, image_bytes: Optional[bytes] = None) -> Dict[str, Any]:
+        """
+        The main chat interface.
+        If image_bytes is provided, perform image analysis + chat.
+        Otherwise, text-only chat with retrieval/recommendation is returned.
+        """
+        # Analyze image if provided
+        image_analysis = None
+        if image_bytes:
+            image_analysis = self._analyze_image(image_bytes)
 
-        with open(image_path, "rb") as f:
-            img_data = f.read()
-        base64_image = base64.b64encode(img_data).decode("utf-8")
+        # Combine message and image analysis to form prompt/context
+        full_prompt = self._compose_prompt(user_id, message, image_analysis)
 
-        try:
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": f"Analyze this fashion image and provide styling advice. {message}"},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        ]
-                    }
-                ],
-                max_tokens=900
-            )
-            content = response.choices[0].message.content
-            raw_analysis = content.strip()
-        except Exception as e:
-            print(f"❌ AI image analysis failed: {e}")
-            raw_analysis = "Image analysis failed"
+        # Query OpenAI chat completion
+        response_text = self._get_chat_response(full_prompt)
 
-        analysis_result = {
-            "raw_analysis": raw_analysis,
-            "clothing_items": "See raw_analysis",
-            "colors": "See raw_analysis",
-            "style_analysis": "See raw_analysis"
+        # Get recommendations based on image analysis or user profile / message
+        recommendations = self._generate_recommendations(user_id, image_analysis, message)
+
+        # Build response JSON similar to Fashion_image_chat.py output format
+        result = {
+            "answer": response_text,
+            "image_analysis": image_analysis or {},
+            "recommendations": recommendations
         }
 
+        # Optionally store context per user for future interactions
+        self._update_user_context(user_id, message, response_text, image_analysis)
+
+        return result
+
+    def _analyze_image(self, image_bytes: bytes) -> Dict[str, Any]:
+        """
+        Analyze the uploaded image using OpenAI Vision or another model.
+        Return structured fashion insights such as clothing, colors, occasions, tips.
+        """
         try:
-            self.db.track_user_behavior(
-                user_id,
-                "image_upload",
-                image_id=os.path.basename(image_path),
-                query=message
+            # Example pseudo-call to OpenAI Vision API (replace with your actual method/setup)
+            response = self.openai.images.analyze(
+                image=image_bytes,
+                features=["labels", "colors", "text"]
             )
+            # Parse response to extract meaningful fashion info (dummy example)
+            labels = [label["name"] for label in response.get("labels", [])]
+            colors = response.get("dominantColors", [])
+            analysis = {
+                "labels": labels,
+                "colors": colors,
+                "tips": "Consider matching colors and adding accessories.",
+                "occasion": "casual"  # Simplified for demo
+            }
+            return analysis
         except Exception as e:
-            print(f"❌ DB log error: {e}")
+            # On error, just return empty dict or log error
+            print(f"Image analysis failed: {e}")
+            return {}
 
-        return analysis_result
+    def _compose_prompt(self, user_id: str, message: str, image_analysis: Optional[Dict[str, Any]]) -> str:
+        # Compose a prompt by integrating previous user context, current message, and optional image analysis
+        context_text = ""
+        if user_id in self.user_contexts:
+            context_text = "\n".join(self.user_contexts[user_id])
 
-    def chat_with_image_context(self, user_id: str, message: str, image_analysis=None):
-        if image_analysis and "raw_analysis" in image_analysis:
-            try:
-                raw = image_analysis["raw_analysis"]
-                clean = raw.strip()
+        image_text = ""
+        if image_analysis:
+            image_text = f"Fashion image details: {image_analysis}"
 
-                # Correctly remove fenced code block markers from start and end if present
-                if clean.startswith("```
-                    clean = clean[7:]
-                elif clean.startswith("```"):
-                    clean = clean[3:]
-                if clean.endswith("```
-                    clean = clean[:-3]
-                clean = clean.strip()
+        prompt = f"{context_text}\nUser says: {message}\n{image_text}\nRespond as a fashion advisor."
+        return prompt.strip()
 
-                try:
-                    parsed = json.loads(clean)
-                    suggestion = (
-                        parsed.get("Clothing Items")
-                        or parsed.get("User's Specific Question", {}).get("Shirt Suggestion")
-                        or parsed.get("Suggested Shirt")
-                        or raw
-                    )
-                except Exception:
-                    # If parsing fails, just fallback gracefully
-                    parsed = {}
-                    suggestion = clean if clean else "Try a crisp white shirt or a pastel tee!"
-                return {
-                    "user_id": user_id,
-                    "answer": suggestion,
-                    "image_analysis": parsed or clean
-                }
-            except Exception as e:
-                print(f"❌ JSON parse error: {e}")
-                return {
-                    "user_id": user_id,
-                    "answer": image_analysis["raw_analysis"],
-                    "image_analysis": image_analysis
-                }
-        return {
-            "user_id": user_id,
-            "answer": "🤔 I don't know how to respond to that.",
-            "image_analysis": image_analysis or {}
-        }
+    def _get_chat_response(self, prompt: str) -> str:
+        # Use ChatOpenAI or OpenAI API to generate response, trimmed for demo
+        chat_response = self.chat_model.predict(prompt)
+        return chat_response
+
+    def _generate_recommendations(self, user_id: str, image_analysis: Optional[Dict[str, Any]], message: str) -> List[Dict[str, Any]]:
+        # Invoke recommendation engine based on context
+        user_profile = {"message": message}
+        if image_analysis:
+            user_profile.update(image_analysis)
+        return self.rec_engine.recommend(user_profile)
+
+    def _update_user_context(self, user_id: str, message: str, response_text: str, image_analysis: Optional[Dict[str, Any]]):
+        # Save last messages in conversation memory (max N)
+        if user_id not in self.user_contexts:
+            self.user_contexts[user_id] = []
+        self.user_contexts[user_id].append(f"User: {message}")
+        self.user_contexts[user_id].append(f"Assistant: {response_text}")
+        # Cap context length to 20 entries
+        self.user_contexts[user_id] = self.user_contexts[user_id][-20:]
+
+
+def get_fashion_chatbot(openai_api_key: Optional[str] = None) -> EnhancedFashionChatbot:
+    """
+    Factory function to initialize and return a fully configured EnhancedFashionChatbot instance.
+    """
+    if openai_api_key:
+        os.environ["OPENAI_API_KEY"] = openai_api_key
+    else:
+        # Ensure API key is set in environment already
+        if "OPENAI_API_KEY" not in os.environ:
+            raise RuntimeError("OPENAI_API_KEY is not set in environment or argument.")
+
+    # Initialize components of your chatbot (replace with actual models and initialization)
+    fashion_db = FashionDatabase()
+    rec_engine = FashionRecommendationEngine(fashion_db)
+
+    embed_model = OpenAIEmbeddings(model="text-embedding-3-small")  # or your preferred model
+    vectorstore = create_fashion_vector_store(fashion_db, embed_model)
+    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5})
+
+    chat_model = ChatOpenAI(model_name="gpt-4o", temperature=0.1)
+
+    # Initialize OpenAI native client wrapper
+    openai_native_client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+    chatbot = EnhancedFashionChatbot(chat_model, retriever, fashion_db, rec_engine, openai_native_client)
+
+    return chatbot
