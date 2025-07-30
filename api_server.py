@@ -159,6 +159,14 @@ async def chat(
 
             analysis_result = chatbot.handle_image_upload(user_id, tmp_path, message)
 
+            if analysis_result is None:
+                print("❌ handle_image_upload() returned None.")
+                return JSONResponse({"error": "Image analysis failed (no response)."}, status_code=500)
+
+            if not isinstance(analysis_result, dict):
+                print("❌ Unexpected return from handle_image_upload():", analysis_result)
+                return JSONResponse({"error": "Unexpected image analysis result."}, status_code=500)
+
             if not analysis_result.get("success", False):
                 print(f"⚠️ Image analysis failed: {analysis_result.get('error')}")
                 return JSONResponse({"error": "Image analysis failed."}, status_code=500)
@@ -179,6 +187,6 @@ async def chat(
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# === Main Entry Point for Local Dev ===
+# === Local Run (for dev only) ===
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
