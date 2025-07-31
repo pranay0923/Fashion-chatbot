@@ -1,0 +1,33 @@
+# render.yaml - Render Deployment Configuration
+# This file defines how to deploy both frontend and backend services
+
+services:
+  # Backend API Service
+  - type: web
+    name: fashion-chatbot-api
+    env: python
+    plan: starter  # Free tier
+    buildCommand: pip install -r backend-requirements.txt
+    startCommand: python fastapi-backend.py
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false  # Set this in Render dashboard
+      - key: DATABASE_PATH
+        value: "fashion_data.db"
+      - key: UPLOAD_DIR
+        value: "uploads"
+      - key: PORT
+        value: "10000"
+    
+  # Frontend Streamlit Service  
+  - type: web
+    name: fashion-chatbot-frontend
+    env: python
+    plan: starter  # Free tier
+    buildCommand: pip install -r frontend-requirements.txt
+    startCommand: streamlit run streamlit-frontend.py --server.port=$PORT --server.address=0.0.0.0
+    envVars:
+      - key: API_BASE_URL
+        value: "https://fashion-chatbot-api.onrender.com"  # Update with your actual backend URL
+      - key: PORT
+        value: "10000"
