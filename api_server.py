@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import os
 import sqlite3
-from Fashion_image_chat.py import (
+from Fashion_image_chat import (
     FashionChatbot,
     FashionDatabase,
     FashionRecommendationEngine,
