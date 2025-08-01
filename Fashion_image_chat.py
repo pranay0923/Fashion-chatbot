@@ -320,38 +320,163 @@ class ImageAnalysisService:
             }
 
 # ===== PART 4: RECOMMENDATION ENGINE =====
+
+# Updated get_personalized_recommendations method with better diversity, deduplication, and personalization
+
 class FashionRecommendationEngine:
-    """Fashion recommendation engine"""
-    
+    """Improved Fashion recommendation engine"""
+
     def __init__(self, fashion_db, retriever=None):
         self.fashion_db = fashion_db
         self.retriever = retriever
-    
-    def get_personalized_recommendations(self, user_id, query, limit=5):
-        """Get personalized product recommendations"""
+
+    def get_personalized_recommendations(self, user_id, query, limit=5, exclude_ids=None):
+        """Return improved recommendations with diversity and personalization"""
+        if exclude_ids is None:
+            exclude_ids = []
+
         try:
-            products = self.fashion_db.get_all_products()
-            if not products:
+            all_products = self.fashion_db.get_all_products()
+            if not all_products:
                 return []
-            
+
+            query_lower = query.lower()
+            filtered_products = []
+
+            category_keywords = {
+                'tops': ['shirt', 'top', 'blouse', 't-shirt', 'tshirt', 'tee'],
+                'bottoms': ['jeans', 'pants', 'trousers', 'shorts', 'skirt'],
+                'outerwear': ['jacket', 'coat', 'blazer', 'cardigan', 'hoodie'],
+                'dresses': ['dress', 'gown', 'frock'],
+                'footwear': ['shoes', 'sneakers', 'boots', 'sandals', 'heels'],
+                'accessories': ['bag', 'purse', 'belt', 'scarf', 'jewelry']
+            }
+
+            occasion_keywords = {
+                'work': ['work', 'office', 'professional', 'business', 'interview', 'formal'],
+                'casual': ['casual', 'everyday', 'relaxed', 'weekend'],
+                'party': ['party', 'night out', 'clubbing', 'evening'],
+                'wedding': ['wedding', 'formal event', 'ceremony'],
+                'sport': ['gym', 'workout', 'exercise', 'running', 'athletic', 'sport']
+            }
+
+            color_keywords = ['black', 'white', 'blue', 'red', 'green', 'yellow', 'pink', 'brown', 'gray', 'purple']
+
+            # Track user interaction preferences (simplified)
+            preferences = self.analyze_user_preferences(user_id)
+
+            product_scores = []
+            for product in all_products:
+                if product[0] in exclude_ids:
+                    continue
+
+                score = 0
+                product_text = f"{product[1]} {product[2]} {product[3]} {product[4]} {product[6]} {product[8]} {product[9]} {product[12]}".lower()
+
+                # Keyword scoring
+                for category, keywords in category_keywords.items():
+                    if any(kw in query_lower for kw in keywords):
+                        if any(kw in product_text for kw in keywords) or category in product_text:
+                            score += 10
+
+                for occasion, keywords in occasion_keywords.items():
+                    if any(kw in query_lower for kw in keywords):
+                        if occasion in product_text or any(kw in product_text for kw in keywords):
+                            score += 8
+
+                for color in color_keywords:
+                    if color in query_lower and color in product_text:
+                        score += 5
+                    if color in preferences['preferred_colors'] and color in product_text:
+                        score += 2
+
+                if product[4] and product[4].lower() in query_lower:
+                    score += 7
+
+                for word in query_lower.split():
+                    if len(word) > 2 and word in product_text:
+                        score += 3
+
+                for season in ['summer', 'winter', 'spring', 'fall', 'autumn']:
+                    if season in query_lower and season in product_text:
+                        score += 4
+
+                if 'men' in query_lower and product[11] in ['men', 'unisex']:
+                    score += 3
+                elif 'women' in query_lower and product[11] in ['women', 'unisex']:
+                    score += 3
+
+                # Bonus for preferred styles
+                for style in preferences['preferred_styles']:
+                    if style in product_text:
+                        score += 2
+
+                product_scores.append((product, score))
+
+            # Sort by score
+            product_scores.sort(key=lambda x: x[1], reverse=True)
+
+            # Deduplication and diversity enforcement
+            seen_categories = set()
+            seen_brands = set()
             recommendations = []
-            for product in products[:limit]:
-                rec = {
+
+            for product, score in product_scores:
+                if len(recommendations) >= limit:
+                    break
+
+                if product[2] in seen_categories:
+                    continue
+                if product[4] in seen_brands:
+                    continue
+
+                recommendations.append({
                     'product_id': product[0],
                     'name': product[1],
                     'category': product[2] if len(product) > 2 else 'Fashion Item',
                     'brand': product[4] if len(product) > 4 else 'Unknown Brand',
                     'price': product[5] if len(product) > 5 else 0,
                     'color': product[6] if len(product) > 6 else 'Various',
-                    'description': product[8] if len(product) > 8 else 'Stylish fashion item'
-                }
-                recommendations.append(rec)
-            
+                    'description': product[8] if len(product) > 8 else 'Stylish fashion item',
+                    'occasion': product[12] if len(product) > 12 else 'Various occasions'
+                })
+
+                seen_categories.add(product[2])
+                seen_brands.add(product[4])
+
             return recommendations
-        
+
         except Exception as e:
-            print(f"Error getting recommendations: {e}")
+            print(f"Error in recommendation engine: {e}")
             return []
+
+    def analyze_user_preferences(self, user_id):
+        try:
+            conn = sqlite3.connect(self.fashion_db.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''SELECT query FROM user_behavior WHERE user_id = ? AND query IS NOT NULL ORDER BY timestamp DESC LIMIT 10''', (user_id,))
+            queries = [row[0] for row in cursor.fetchall()]
+            conn.close()
+
+            all_queries = ' '.join(queries).lower()
+
+            colors = ['black', 'white', 'blue', 'red', 'green', 'yellow', 'pink', 'brown']
+            styles = ['casual', 'formal', 'sporty', 'elegant', 'trendy', 'classic']
+
+            return {
+                'preferred_colors': [c for c in colors if c in all_queries],
+                'preferred_styles': [s for s in styles if s in all_queries],
+                'budget_range': 'medium'
+            }
+
+        except Exception as e:
+            print(f"Error analyzing preferences: {e}")
+            return {
+                'preferred_colors': [],
+                'preferred_styles': [],
+                'budget_range': 'medium'
+            }
+
 
 # ===== PART 5: FASHION CHATBOT =====
 class FashionChatbot:
@@ -498,7 +623,7 @@ def interactive_mode():
     print("🚀 Starting Fashion Chatbot in Interactive Mode...")
     
     # Setup OpenAI
-    OPENAI_KEY = "Enter"
+    OPENAI_KEY = ""
     os.environ['OPENAI_API_KEY'] = OPENAI_KEY
     
     # Initialize components
