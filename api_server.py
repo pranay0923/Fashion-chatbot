@@ -1,5 +1,5 @@
 # api_server.py
-# FastAPI server for Fashion Chatbot - Updated with lifespan events
+# FastAPI server for Fashion Chatbot - Updated with API key handling
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,13 +7,14 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import os
 import sqlite3
-from Fashion_image_chat import (
+from dotenv import load_dotenv  # Add this import
+from main import (
     FashionChatbot,
     FashionDatabase,
     FashionRecommendationEngine,
     ChatOpenAI,
     OpenAIEmbeddings,
-    FAISS,  # Changed from Chroma to FAISS for better compatibility
+    FAISS,
     RecursiveCharacterTextSplitter,
     Document,
 )
@@ -31,12 +32,21 @@ async def lifespan(app: FastAPI):
     try:
         print("🚀 Initializing Fashion Chatbot API...")
         
-        # Check for OpenAI API key
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if not openai_key:
-            raise Exception("OPENAI_API_KEY environment variable not set")
+        # Load environment variables from .env file if it exists
+        load_dotenv()
         
+        # Multiple ways to get the OpenAI API key
+        openai_key = (
+            os.getenv("OPENAI_API_KEY") or 
+            ""
+        )
+        
+        if not openai_key:
+            raise Exception("OPENAI_API_KEY not found. Please set it as an environment variable or in .env file")
+        
+        # Set the environment variable
         os.environ["OPENAI_API_KEY"] = openai_key
+        print("✅ OpenAI API key loaded successfully")
         
         # Initialize OpenAI models
         print("1️⃣ Setting up OpenAI models...")
@@ -91,7 +101,7 @@ Material: {product[13]}
         splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         chunked_docs = splitter.split_documents(fashion_docs)
         
-        # Create vector store using FAISS (more reliable than Chroma)
+        # Create vector store using FAISS
         fashion_db_vector = FAISS.from_documents(
             documents=chunked_docs,
             embedding=openai_embed_model
@@ -242,7 +252,7 @@ async def get_user_history(user_id: str):
         raise HTTPException(status_code=503, detail="Chatbot is not ready yet")
     
     try:
-        # Get user's uploaded images (add this method to your FashionDatabase class)
+        # Get user's uploaded images
         conn = sqlite3.connect(chatbot.fashion_db.db_path)
         cursor = conn.cursor()
         cursor.execute('''
@@ -281,7 +291,7 @@ async def get_user_history(user_id: str):
 
 if __name__ == "__main__":
     print("🌟 Starting Fashion Chatbot API Server...")
-    print("📝 Make sure to set your OPENAI_API_KEY environment variable")
+    print("📝 OpenAI API key will be loaded from environment or fallback")
     print("🚀 Server will be available at: http://localhost:8000")
     print("📚 API docs will be at: http://localhost:8000/docs")
     
